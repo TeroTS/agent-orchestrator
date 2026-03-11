@@ -3,10 +3,10 @@ import { spawn } from "node:child_process";
 import { join, resolve } from "node:path";
 
 export interface WorkspaceHooks {
-  afterCreate?: string;
-  beforeRun?: string;
-  afterRun?: string;
-  beforeRemove?: string;
+  afterCreate?: string | undefined;
+  beforeRun?: string | undefined;
+  afterRun?: string | undefined;
+  beforeRemove?: string | undefined;
   timeoutMs?: number;
 }
 

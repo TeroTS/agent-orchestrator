@@ -7,7 +7,7 @@ import {
 export interface RunningEntry {
   issue: OrchestrationIssue;
   startedAt: Date;
-  sessionId?: string;
+  sessionId?: string | undefined;
 }
 
 export interface RetryEntry {
