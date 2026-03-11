@@ -20,6 +20,7 @@ describe("repository tooling", () => {
       "lint:fix": expect.any(String),
       format: expect.any(String),
       "format:check": expect.any(String),
+      "test:coverage": expect.any(String),
     });
 
     expect(packageJson.devDependencies).toMatchObject({
@@ -27,6 +28,7 @@ describe("repository tooling", () => {
       prettier: expect.any(String),
       "@eslint/js": expect.any(String),
       "typescript-eslint": expect.any(String),
+      "@vitest/coverage-v8": expect.any(String),
     });
 
     await expect(
@@ -37,6 +39,12 @@ describe("repository tooling", () => {
     ).resolves.toContain("{");
     await expect(
       readFile(resolve(repoRoot, ".prettierignore"), "utf8"),
-    ).resolves.toContain("dist");
+    ).resolves.toEqual(expect.stringContaining("coverage"));
+    await expect(
+      readFile(resolve(repoRoot, ".gitignore"), "utf8"),
+    ).resolves.toEqual(expect.stringContaining("coverage"));
+    await expect(
+      readFile(resolve(repoRoot, "vitest.config.ts"), "utf8"),
+    ).resolves.toContain("coverage");
   });
 });

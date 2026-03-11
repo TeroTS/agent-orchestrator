@@ -159,6 +159,14 @@ Run the full test suite:
 npm test
 ```
 
+Run the test suite with coverage reporting:
+
+```bash
+npm run test:coverage
+```
+
+Coverage reports are written under `coverage/`.
+
 Run the build:
 
 ```bash
