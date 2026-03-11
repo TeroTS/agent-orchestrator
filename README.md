@@ -193,5 +193,6 @@ Optionally:
 
 - [`src/`](./src) contains the runtime implementation
 - [`test/`](./test) contains Vitest coverage
+- [`docs/`](./docs) contains architecture, running, operations, and D2 diagrams
 - [`WORKFLOW.md`](./WORKFLOW.md) is the default runtime workflow
 - [`SPEC.md`](./SPEC.md) is the implementation contract

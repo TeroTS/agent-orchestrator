@@ -1,0 +1,13 @@
+title: Key Flow: Observability
+
+worker: "Codex Session"
+orchestrator: "Orchestrator"
+logger: "Structured Logs"
+status: "Status Server"
+operator: "Operator"
+
+worker -> orchestrator: emits runtime events
+orchestrator -> logger: writes lifecycle logs
+orchestrator -> status: publishes snapshot state
+operator -> logger: reads logs
+operator -> status: queries state / triggers refresh

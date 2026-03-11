@@ -1,0 +1,25 @@
+title: Runtime Boundary Models
+
+workflow: {
+  shape: class
+  label: "Workflow Definition|config|promptTemplate"
+}
+
+issue: {
+  shape: class
+  label: "Tracker Issue|id|identifier|title|state|labels[]|blockedBy[]|url?"
+}
+
+event: {
+  shape: class
+  label: "Codex Runtime Event|event|timestamp|sessionId?|message?|usage?|payload?"
+}
+
+snapshot: {
+  shape: class
+  label: "Runtime Snapshot|running[]|retrying[]|completed_issue_ids[]|codex_totals|null|rate_limits|null"
+}
+
+workflow -> issue: renders prompt for
+issue -> event: drives session for
+event -> snapshot: updates

@@ -1,0 +1,15 @@
+title: Deployment Topology
+
+host: "Runtime Host"
+service: "Symphony Process"
+tracker: "Tracker API"
+codex: "Codex Subprocess"
+workspace: "Workspace Filesystem"
+operator: "Operator Browser / Terminal"
+
+host -> service
+service -> tracker: reads issues
+service -> codex: spawns
+service -> workspace: reads/writes
+operator -> service: starts process
+operator -> service: reads HTTP status

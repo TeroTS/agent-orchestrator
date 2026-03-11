@@ -1,0 +1,17 @@
+title: System Context
+
+repo: "Repository Workflow"
+service: "Symphony Service"
+tracker: "Tracker API"
+codex: "Codex App Server"
+workspace: "Workspace Root"
+status: "Status HTTP Surface"
+operator: "Operator / Contributor"
+
+repo -> service: provides workflow config
+service -> tracker: polls issues
+service -> workspace: creates and removes workspaces
+service -> codex: starts sessions
+service -> status: serves runtime state
+operator -> service: starts/stops
+operator -> status: reads and triggers refresh

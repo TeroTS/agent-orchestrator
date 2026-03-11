@@ -1,0 +1,18 @@
+title: Key Flow: Issue Dispatch
+
+workflow: "Workflow Store"
+tracker: "Tracker Client"
+orchestrator: "Orchestrator"
+workspace: "Workspace Manager"
+runner: "Agent Runner"
+codex: "Codex App Server"
+status: "Runtime Snapshot"
+
+workflow -> orchestrator: supplies validated config
+tracker -> orchestrator: returns active issues
+orchestrator -> workspace: prepares issue workspace
+orchestrator -> runner: dispatches issue
+runner -> codex: starts thread and turn
+codex -> runner: emits runtime events
+runner -> orchestrator: reports completion / failure
+orchestrator -> status: updates running and retry state
