@@ -249,4 +249,36 @@ describe("startStatusServer", () => {
     const response = await fetch(`${server.baseUrl}/missing`);
     expect(response.status).toBe(404);
   });
+
+  it("returns 405 for unsupported methods on known routes", async () => {
+    const server = await startStatusServer({
+      port: 0,
+      snapshot: () => ({
+        running: [],
+        retries: [],
+        completedIssueIds: []
+      })
+    });
+    servers.push(server);
+
+    const statePost = await fetch(`${server.baseUrl}/api/v1/state`, {
+      method: "POST"
+    });
+    expect(statePost.status).toBe(405);
+    await expect(statePost.json()).resolves.toEqual({
+      error: {
+        code: "method_not_allowed",
+        message: "Method POST is not allowed for /api/v1/state."
+      }
+    });
+
+    const refreshGet = await fetch(`${server.baseUrl}/api/v1/refresh`);
+    expect(refreshGet.status).toBe(405);
+    await expect(refreshGet.json()).resolves.toEqual({
+      error: {
+        code: "method_not_allowed",
+        message: "Method GET is not allowed for /api/v1/refresh."
+      }
+    });
+  });
 });

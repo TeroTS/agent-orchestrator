@@ -49,6 +49,17 @@ export async function startStatusServer(options: {
     const path = parsePath(request);
 
     try {
+      const methodError = validateMethod(path, method);
+      if (methodError) {
+        writeJson(response, 405, {
+          error: {
+            code: "method_not_allowed",
+            message: `Method ${method} is not allowed for ${path}.`
+          }
+        });
+        return;
+      }
+
       if (path === "/api/v1/health") {
         writeJson(response, 200, { ok: true });
         return;
@@ -180,6 +191,18 @@ export async function startStatusServer(options: {
 function parsePath(request: IncomingMessage): string {
   const rawUrl = request.url ?? "/";
   return new URL(rawUrl, "http://127.0.0.1").pathname;
+}
+
+function validateMethod(path: string, method: string): "known_route" | null {
+  if (path === "/" || path === "/api/v1/state" || path === "/api/v1/issues" || path === "/api/v1/running" || path === "/api/v1/retries" || path === "/api/v1/completed" || path === "/api/v1/health" || path === "/api/v1/ready" || path.startsWith("/api/v1/issues/")) {
+    return method === "GET" ? null : "known_route";
+  }
+
+  if (path === "/api/v1/refresh" || path === "/api/v1/reconcile") {
+    return method === "POST" ? null : "known_route";
+  }
+
+  return null;
 }
 
 function readSnapshot(snapshotFn: () => unknown): RuntimeSnapshot {

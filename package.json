@@ -7,6 +7,7 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/src/main.js",
     "test": "vitest run",
+    "test:integration": "vitest run test/real-integration.test.ts",
     "test:watch": "vitest"
   },
   "dependencies": {

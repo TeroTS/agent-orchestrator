@@ -11,12 +11,22 @@ export interface RunCliOptions {
   stderr?: (message: string) => void;
 }
 
+export interface StartCliResult {
+  exitCode: number;
+  service?: CliService;
+}
+
 export async function runCli(argv: string[], options: RunCliOptions): Promise<number> {
+  const started = await startCli(argv, options);
+  return started.exitCode;
+}
+
+export async function startCli(argv: string[], options: RunCliOptions): Promise<StartCliResult> {
   const stderr = options.stderr ?? ((message: string) => process.stderr.write(`${message}\n`));
   const parsed = parseCliArgs(argv, options.cwd);
   if (!parsed.ok) {
     stderr(parsed.error);
-    return 1;
+    return { exitCode: 1 };
   }
 
   try {
@@ -26,11 +36,14 @@ export async function runCli(argv: string[], options: RunCliOptions): Promise<nu
         : { workflowPath: parsed.workflowPath, port: parsed.port }
     );
     await service.start();
-    return 0;
+    return {
+      exitCode: 0,
+      service
+    };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     stderr(`startup_failed ${message}`);
-    return 1;
+    return { exitCode: 1 };
   }
 }
 

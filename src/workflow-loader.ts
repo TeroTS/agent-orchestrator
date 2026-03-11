@@ -257,8 +257,17 @@ export async function renderPromptTemplate(
   context: Record<string, unknown>
 ): Promise<string> {
   const template = definition.promptTemplate || DEFAULT_PROMPT;
+  let parsedTemplate;
   try {
-    return await liquidEngine.parseAndRender(template, context);
+    parsedTemplate = liquidEngine.parse(template);
+  } catch (error) {
+    throw new WorkflowError("template_parse_error", "Failed to parse workflow prompt template.", {
+      cause: error
+    });
+  }
+
+  try {
+    return await liquidEngine.render(parsedTemplate, context);
   } catch (error) {
     throw new WorkflowError("template_render_error", "Failed to render workflow prompt template.", {
       cause: error

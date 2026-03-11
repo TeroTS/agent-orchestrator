@@ -180,4 +180,22 @@ describe("renderPromptTemplate", () => {
       code: "template_render_error"
     });
   });
+
+  it("fails with template_parse_error on invalid template syntax", async () => {
+    await expect(
+      renderPromptTemplate(
+        {
+          config: {},
+          promptTemplate: "{% if issue.identifier %}"
+        },
+        {
+          issue: {
+            identifier: "ABC-123"
+          }
+        }
+      )
+    ).rejects.toMatchObject({
+      code: "template_parse_error"
+    });
+  });
 });
