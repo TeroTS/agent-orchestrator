@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import {
   loadWorkflowDefinition,
   validateWorkflowForDispatch,
-} from "../src/workflow-loader.js";
+} from "../src/workflow/loader.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repositoryWorkflowPath = resolve(here, "..", "WORKFLOW.md");

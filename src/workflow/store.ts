@@ -1,7 +1,4 @@
-import {
-  loadWorkflowDefinition,
-  type WorkflowDefinition,
-} from "./workflow-loader.js";
+import { loadWorkflowDefinition, type WorkflowDefinition } from "./loader.js";
 
 export interface WorkflowStoreOptions {
   workflowPath: string;

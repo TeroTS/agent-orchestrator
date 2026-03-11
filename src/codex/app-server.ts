@@ -4,7 +4,7 @@ import { resolve } from "node:path";
 import {
   createStructuredLogger,
   type StructuredLogger,
-} from "./structured-logger.js";
+} from "../observability/structured-logger.js";
 
 export interface CodexRuntimeEvent {
   event: string;

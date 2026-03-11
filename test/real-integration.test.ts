@@ -5,7 +5,7 @@ import { spawnSync } from "node:child_process";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { CodexAppServerClient } from "../src/codex-app-server.js";
+import { CodexAppServerClient } from "../src/codex/app-server.js";
 import { LinearTrackerClient } from "../src/tracker/linear-client.js";
 
 const tempDirs: string[] = [];

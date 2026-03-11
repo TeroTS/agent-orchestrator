@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { createStructuredLogger } from "../src/structured-logger.js";
+import { createStructuredLogger } from "../src/observability/structured-logger.js";
 
 describe("createStructuredLogger", () => {
   it("formats stable key=value logs with issue and session context", () => {

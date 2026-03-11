@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { createService } from "../src/service.js";
-import { createStructuredLogger } from "../src/structured-logger.js";
-import type { WorkflowDefinition } from "../src/workflow-loader.js";
+import { createService } from "../src/app/service.js";
+import { createStructuredLogger } from "../src/observability/structured-logger.js";
+import type { WorkflowDefinition } from "../src/workflow/loader.js";
 
 describe("createService", () => {
   it("rebinds the status server when workflow reload changes the port", async () => {

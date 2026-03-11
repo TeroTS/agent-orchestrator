@@ -2,7 +2,7 @@ import {
   isIssueDispatchEligible,
   sortDispatchCandidates,
   type OrchestrationIssue,
-} from "./orchestration-rules.js";
+} from "./rules.js";
 
 export interface RunningEntry {
   issue: OrchestrationIssue;

@@ -6,7 +6,7 @@ import {
   isIssueDispatchEligible,
   sortDispatchCandidates,
   type OrchestrationIssue,
-} from "../src/orchestration-rules.js";
+} from "../src/orchestrator/rules.js";
 
 describe("sortDispatchCandidates", () => {
   it("sorts by priority, then oldest createdAt, then identifier", () => {

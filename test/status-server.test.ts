@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { startStatusServer } from "../src/status-server.js";
+import { startStatusServer } from "../src/observability/status-server.js";
 
 const servers: Array<{ stop: () => Promise<void> }> = [];
 

@@ -1,26 +1,26 @@
-import { workspacePathFor } from "./workspace-manager.js";
-import type { CodexRuntimeEvent } from "./codex-app-server.js";
+import { workspacePathFor } from "../workspace/manager.js";
+import type { CodexRuntimeEvent } from "../codex/app-server.js";
 import {
   computeReconciliationAction,
   computeRetryDelayMs,
   type OrchestrationIssue,
-} from "./orchestration-rules.js";
+} from "./rules.js";
 import {
   buildRetryEntry,
   createRuntimeSnapshot,
   selectIssuesToDispatch,
   type RetryEntry,
   type RunningEntry,
-} from "./orchestrator-state.js";
+} from "./state.js";
 import {
   validateWorkflowForDispatch,
   type EffectiveWorkflowConfig,
   type WorkflowDefinition,
-} from "./workflow-loader.js";
+} from "../workflow/loader.js";
 import {
   createStructuredLogger,
   type StructuredLogger,
-} from "./structured-logger.js";
+} from "../observability/structured-logger.js";
 
 export interface WorkflowStoreLike {
   load(): Promise<{ current: WorkflowDefinition }>;

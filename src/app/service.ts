@@ -1,23 +1,26 @@
 import { rm } from "node:fs/promises";
 import { watch } from "node:fs";
 
-import { AgentRunner } from "./agent-runner.js";
+import { AgentRunner } from "../codex/agent-runner.js";
 import {
   SymphonyOrchestrator,
   type WorkflowStoreLike,
-} from "./orchestrator.js";
-import { startStatusServer, type StatusServerHandle } from "./status-server.js";
+} from "../orchestrator/orchestrator.js";
+import {
+  startStatusServer,
+  type StatusServerHandle,
+} from "../observability/status-server.js";
 import {
   createStructuredLogger,
   type StructuredLogger,
-} from "./structured-logger.js";
-import { LinearTrackerClient } from "./tracker/linear-client.js";
+} from "../observability/structured-logger.js";
+import { LinearTrackerClient } from "../tracker/linear-client.js";
 import {
   validateWorkflowForDispatch,
   type EffectiveWorkflowConfig,
   type WorkflowDefinition,
-} from "./workflow-loader.js";
-import { WorkflowStore } from "./workflow-store.js";
+} from "../workflow/loader.js";
+import { WorkflowStore } from "../workflow/store.js";
 
 export interface SymphonyService {
   start(): Promise<void>;

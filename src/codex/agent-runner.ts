@@ -1,22 +1,19 @@
-import {
-  CodexAppServerClient,
-  type CodexRuntimeEvent,
-} from "./codex-app-server.js";
-import type { OrchestrationIssue } from "./orchestration-rules.js";
+import { CodexAppServerClient, type CodexRuntimeEvent } from "./app-server.js";
+import type { OrchestrationIssue } from "../orchestrator/rules.js";
 import {
   createStructuredLogger,
   type StructuredLogger,
-} from "./structured-logger.js";
+} from "../observability/structured-logger.js";
 import {
   ensureWorkspace,
   finalizeWorkspaceRun,
   prepareWorkspaceForRun,
-} from "./workspace-manager.js";
+} from "../workspace/manager.js";
 import {
   renderPromptTemplate,
   validateWorkflowForDispatch,
   type WorkflowDefinition,
-} from "./workflow-loader.js";
+} from "../workflow/loader.js";
 
 export interface AgentRunnerOptions {
   workflowDefinition: WorkflowDefinition;

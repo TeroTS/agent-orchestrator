@@ -16,7 +16,7 @@ import {
   removeWorkspace,
   sanitizeWorkspaceKey,
   validateWorkspacePathWithinRoot,
-} from "../src/workspace-manager.js";
+} from "../src/workspace/manager.js";
 
 const tempDirs: string[] = [];
 

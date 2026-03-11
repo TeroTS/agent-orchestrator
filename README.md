@@ -75,19 +75,19 @@ npm start
 Start with an explicit workflow path:
 
 ```bash
-node dist/src/main.js /absolute/path/to/WORKFLOW.md
+node dist/src/app/main.js /absolute/path/to/WORKFLOW.md
 ```
 
 Start with the status server enabled on a specific port:
 
 ```bash
-node dist/src/main.js --port 4000
+node dist/src/app/main.js --port 4000
 ```
 
 You can also combine both:
 
 ```bash
-node dist/src/main.js --port 4000 /absolute/path/to/WORKFLOW.md
+node dist/src/app/main.js --port 4000 /absolute/path/to/WORKFLOW.md
 ```
 
 The host process handles `SIGINT` and `SIGTERM` and attempts a clean shutdown.

@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   CodexAppServerClient,
   type CodexRuntimeEvent,
-} from "../src/codex-app-server.js";
+} from "../src/codex/app-server.js";
 
 const tempDirs: string[] = [];
 
