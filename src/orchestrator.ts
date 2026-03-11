@@ -1,4 +1,5 @@
 import { workspacePathFor } from "./workspace-manager.js";
+import type { CodexRuntimeEvent } from "./codex-app-server.js";
 import {
   computeReconciliationAction,
   computeRetryDelayMs,
@@ -36,7 +37,11 @@ export interface RunnerHandle {
 }
 
 export interface RunnerLike {
-  startRun(input: { issue: OrchestrationIssue; attempt: number | null }): RunnerHandle;
+  startRun(input: {
+    issue: OrchestrationIssue;
+    attempt: number | null;
+    onEvent?: (event: CodexRuntimeEvent) => void;
+  }): RunnerHandle;
 }
 
 export interface SymphonyOrchestratorOptions {
@@ -99,13 +104,20 @@ export class SymphonyOrchestrator {
   async tick(): Promise<void> {
     const config = this.currentConfig();
     await this.reconcileRunningIssues(config);
-
-    const reloaded = await this.workflowStore.reload();
-    const definition = reloaded.ok ? reloaded.current ?? this.workflowStore.current() : this.workflowStore.current();
-    this.config = this.requireValidConfig(definition);
+    await this.reloadConfigKeepingLastKnownGood();
 
     const refreshedConfig = this.currentConfig();
-    const issues = await this.tracker.fetchCandidateIssues(refreshedConfig.tracker.activeStates);
+    let issues: OrchestrationIssue[];
+    try {
+      issues = await this.tracker.fetchCandidateIssues(refreshedConfig.tracker.activeStates);
+    } catch (error) {
+      this.logger.warn("candidate fetch failed", {
+        reason: error instanceof Error ? error.message : String(error)
+      });
+      this.scheduleTick(refreshedConfig.polling.intervalMs);
+      return;
+    }
+
     const selected = selectIssuesToDispatch({
       issues,
       activeStates: refreshedConfig.tracker.activeStates,
@@ -130,17 +142,43 @@ export class SymphonyOrchestrator {
   }
 
   async dispatchNow(issue: OrchestrationIssue, attempt: number | null): Promise<void> {
-    const handle = this.runner.startRun({ issue, attempt });
     this.claimed.add(issue.id);
     this.retryAttempts.delete(issue.id);
     this.clearRetryTimer(issue.id);
 
-    this.running.set(issue.id, {
+    const runningEntry: RunningEntry & {
+      cancel: () => void;
+      retryAttempt: number | null;
+    } = {
       issue,
       startedAt: new Date(),
-      cancel: handle.cancel,
-      retryAttempt: attempt
-    });
+      cancel: () => {},
+      retryAttempt: attempt,
+      turnCount: 0
+    };
+    this.running.set(issue.id, runningEntry);
+
+    let handle: RunnerHandle;
+    try {
+      handle = this.runner.startRun({
+        issue,
+        attempt,
+        onEvent: (event) => {
+          this.handleRuntimeEvent(issue.id, event);
+        }
+      });
+    } catch (error) {
+      this.running.delete(issue.id);
+      this.logger.error("worker spawn failed", {
+        issue_id: issue.id,
+        issue_identifier: issue.identifier,
+        reason: error instanceof Error ? error.message : String(error)
+      });
+      this.scheduleRetry(issue, (attempt ?? 0) + 1, "failed to spawn agent", false);
+      return;
+    }
+
+    runningEntry.cancel = handle.cancel;
 
     handle.promise
       .then((result) => {
@@ -162,7 +200,14 @@ export class SymphonyOrchestrator {
           {
             issue: entry.issue,
             startedAt: entry.startedAt,
-            sessionId: entry.sessionId
+            sessionId: entry.sessionId,
+            threadId: entry.threadId,
+            turnId: entry.turnId,
+            codexAppServerPid: entry.codexAppServerPid,
+            lastCodexEvent: entry.lastCodexEvent,
+            lastCodexTimestamp: entry.lastCodexTimestamp,
+            lastCodexMessage: entry.lastCodexMessage,
+            turnCount: entry.turnCount
           }
         ])
       ),
@@ -173,21 +218,37 @@ export class SymphonyOrchestrator {
 
   private async startupTerminalWorkspaceCleanup(): Promise<void> {
     const config = this.currentConfig();
-    const terminalIssues = await this.tracker.fetchIssuesByStates(config.tracker.terminalStates);
-    await Promise.all(
-      terminalIssues.map((issue) =>
-        this.removeWorkspaceFn(workspacePathFor(config.workspace.root, issue.identifier))
-      )
-    );
+    try {
+      const terminalIssues = await this.tracker.fetchIssuesByStates(config.tracker.terminalStates);
+      await Promise.all(
+        terminalIssues.map((issue) =>
+          this.removeWorkspaceFn(workspacePathFor(config.workspace.root, issue.identifier))
+        )
+      );
+    } catch (error) {
+      this.logger.warn("startup terminal cleanup failed", {
+        reason: error instanceof Error ? error.message : String(error)
+      });
+    }
   }
 
   private async reconcileRunningIssues(config: EffectiveWorkflowConfig): Promise<void> {
+    this.reconcileStalledRuns(config);
     if (this.running.size === 0) {
       return;
     }
 
     const runningIds = Array.from(this.running.keys());
-    const refreshedIssues = await this.tracker.fetchIssueStatesByIds(runningIds);
+    let refreshedIssues: OrchestrationIssue[];
+    try {
+      refreshedIssues = await this.tracker.fetchIssueStatesByIds(runningIds);
+    } catch (error) {
+      this.logger.warn("reconciliation refresh failed", {
+        reason: error instanceof Error ? error.message : String(error)
+      });
+      return;
+    }
+
     for (const refreshedIssue of refreshedIssues) {
       const running = this.running.get(refreshedIssue.id);
       if (!running) {
@@ -354,4 +415,110 @@ export class SymphonyOrchestrator {
       this.retryTimers.delete(issueId);
     }
   }
+
+  private async reloadConfigKeepingLastKnownGood(): Promise<void> {
+    const reloaded = await this.workflowStore.reload();
+    if (!reloaded.ok) {
+      this.logger.warn("workflow reload failed", {
+        reason: reloaded.error instanceof Error ? reloaded.error.message : String(reloaded.error)
+      });
+      return;
+    }
+
+    const definition = reloaded.current ?? this.workflowStore.current();
+    const validation = validateWorkflowForDispatch(definition);
+    if (!validation.ok) {
+      this.logger.error("workflow reload validation failed", {
+        reason: validation.errors.join(", ")
+      });
+      return;
+    }
+
+    this.config = validation.config;
+  }
+
+  private reconcileStalledRuns(config: EffectiveWorkflowConfig): void {
+    if (config.codex.stallTimeoutMs <= 0) {
+      return;
+    }
+
+    const nowMs = Date.now();
+    for (const [issueId, running] of Array.from(this.running.entries())) {
+      const lastSeenMs = running.lastCodexTimestamp
+        ? Date.parse(running.lastCodexTimestamp)
+        : running.startedAt.getTime();
+      if (!Number.isFinite(lastSeenMs)) {
+        continue;
+      }
+
+      if (nowMs - lastSeenMs <= config.codex.stallTimeoutMs) {
+        continue;
+      }
+
+      running.cancel();
+      this.running.delete(issueId);
+      this.logger.warn("run stalled", {
+        issue_id: running.issue.id,
+        issue_identifier: running.issue.identifier,
+        outcome: "retrying"
+      });
+      this.scheduleRetry(
+        running.issue,
+        (running.retryAttempt ?? 0) + 1,
+        "stalled session",
+        false
+      );
+    }
+  }
+
+  private handleRuntimeEvent(issueId: string, event: CodexRuntimeEvent): void {
+    const running = this.running.get(issueId);
+    if (!running) {
+      return;
+    }
+
+    running.lastCodexEvent = event.event;
+    running.lastCodexTimestamp = event.timestamp;
+    if (typeof event.codexAppServerPid === "number") {
+      running.codexAppServerPid = event.codexAppServerPid;
+    }
+
+    const message = summarizeRuntimeMessage(event);
+    if (message) {
+      running.lastCodexMessage = message;
+    }
+
+    if (event.sessionId) {
+      running.sessionId = event.sessionId;
+    }
+
+    if (event.event === "session_started") {
+      const payload = event.payload as { threadId?: unknown; turnId?: unknown } | undefined;
+      if (typeof payload?.threadId === "string") {
+        running.threadId = payload.threadId;
+      }
+      if (typeof payload?.turnId === "string") {
+        running.turnId = payload.turnId;
+      }
+      running.turnCount = (running.turnCount ?? 0) + 1;
+    }
+  }
+}
+
+function summarizeRuntimeMessage(event: CodexRuntimeEvent): string | undefined {
+  if (typeof event.message === "string" && event.message.trim()) {
+    return event.message.trim();
+  }
+
+  if (
+    event.payload &&
+    typeof event.payload === "object" &&
+    "message" in event.payload &&
+    typeof event.payload.message === "string" &&
+    event.payload.message.trim()
+  ) {
+    return event.payload.message.trim();
+  }
+
+  return undefined;
 }

@@ -18,6 +18,13 @@ interface RuntimeRunningEntry {
   identifier: string;
   state?: string;
   sessionId?: string | undefined;
+  threadId?: string | undefined;
+  turnId?: string | undefined;
+  codexAppServerPid?: number | undefined;
+  lastCodexEvent?: string | undefined;
+  lastCodexTimestamp?: string | undefined;
+  lastCodexMessage?: string | undefined;
+  turnCount?: number | undefined;
   startedAt?: string | undefined;
 }
 
@@ -209,6 +216,13 @@ function buildRunningList(snapshot: RuntimeSnapshot) {
     issue_identifier: entry.identifier,
     state: entry.state ?? null,
     session_id: entry.sessionId ?? null,
+    thread_id: entry.threadId ?? null,
+    turn_id: entry.turnId ?? null,
+    codex_app_server_pid: entry.codexAppServerPid ?? null,
+    last_event: entry.lastCodexEvent ?? null,
+    last_event_at: entry.lastCodexTimestamp ?? null,
+    last_message: entry.lastCodexMessage ?? null,
+    turn_count: entry.turnCount ?? 0,
     started_at: entry.startedAt ?? null
   }));
 }
@@ -290,6 +304,13 @@ function buildIssueDetail(snapshot: RuntimeSnapshot, identifier: string) {
           issue_identifier: runningEntry.identifier,
           state: runningEntry.state ?? null,
           session_id: runningEntry.sessionId ?? null,
+          thread_id: runningEntry.threadId ?? null,
+          turn_id: runningEntry.turnId ?? null,
+          codex_app_server_pid: runningEntry.codexAppServerPid ?? null,
+          last_event: runningEntry.lastCodexEvent ?? null,
+          last_event_at: runningEntry.lastCodexTimestamp ?? null,
+          last_message: runningEntry.lastCodexMessage ?? null,
+          turn_count: runningEntry.turnCount ?? 0,
           started_at: runningEntry.startedAt ?? null
         }
       : null,

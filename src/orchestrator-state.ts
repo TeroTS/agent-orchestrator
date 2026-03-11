@@ -8,6 +8,13 @@ export interface RunningEntry {
   issue: OrchestrationIssue;
   startedAt: Date;
   sessionId?: string | undefined;
+  threadId?: string | undefined;
+  turnId?: string | undefined;
+  codexAppServerPid?: number | undefined;
+  lastCodexEvent?: string | undefined;
+  lastCodexTimestamp?: string | undefined;
+  lastCodexMessage?: string | undefined;
+  turnCount?: number | undefined;
 }
 
 export interface RetryEntry {
@@ -89,6 +96,13 @@ export function createRuntimeSnapshot(input: {
       identifier: entry.issue.identifier,
       state: entry.issue.state,
       sessionId: entry.sessionId,
+      threadId: entry.threadId,
+      turnId: entry.turnId,
+      codexAppServerPid: entry.codexAppServerPid,
+      lastCodexEvent: entry.lastCodexEvent,
+      lastCodexTimestamp: entry.lastCodexTimestamp,
+      lastCodexMessage: entry.lastCodexMessage,
+      turnCount: entry.turnCount ?? 0,
       startedAt: entry.startedAt.toISOString()
     })),
     retries: Array.from(input.retryEntries.values()),

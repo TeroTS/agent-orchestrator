@@ -25,7 +25,11 @@ type TrackerFacade = {
 };
 
 type RunnerFacade = {
-  startRun(input: { issue: any; attempt: number | null }): { cancel(): void; promise: Promise<any> };
+  startRun(input: {
+    issue: any;
+    attempt: number | null;
+    onEvent?: (event: any) => void;
+  }): { cancel(): void; promise: Promise<any> };
 };
 
 export async function createService(input: {
@@ -69,7 +73,7 @@ export async function createService(input: {
   const runnerFacade: RunnerFacade =
     input.runner ??
     {
-      startRun: ({ issue, attempt }) => {
+      startRun: ({ issue, attempt, onEvent }) => {
         const controller = new AbortController();
         const runner = new AgentRunner({
           workflowDefinition: workflowStore.current(),
@@ -82,7 +86,8 @@ export async function createService(input: {
           promise: runner.runAttempt({
             issue,
             attempt,
-            signal: controller.signal
+            signal: controller.signal,
+            ...(onEvent ? { onEvent } : {})
           }).catch(async (error) => {
             logger.error("worker attempt failed", {
               issue_id: issue.id,

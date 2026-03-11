@@ -122,6 +122,13 @@ describe("createRuntimeSnapshot", () => {
           identifier: "ABC-1",
           state: "In Progress",
           sessionId: "thread-1-turn-1",
+          threadId: undefined,
+          turnId: undefined,
+          codexAppServerPid: undefined,
+          lastCodexEvent: undefined,
+          lastCodexTimestamp: undefined,
+          lastCodexMessage: undefined,
+          turnCount: 0,
           startedAt: "2026-03-01T10:00:00.000Z"
         }
       ],

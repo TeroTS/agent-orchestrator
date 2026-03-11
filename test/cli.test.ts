@@ -40,6 +40,26 @@ describe("runCli", () => {
     );
   });
 
+  it("parses --port and passes it to service creation", async () => {
+    const createService = vi.fn().mockResolvedValue({
+      start: vi.fn().mockResolvedValue(undefined),
+      stop: vi.fn().mockResolvedValue(undefined)
+    });
+
+    const exitCode = await runCli(["--port", "4010", "/tmp/custom-workflow.md"], {
+      cwd: "/repo",
+      createService
+    });
+
+    expect(exitCode).toBe(0);
+    expect(createService).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workflowPath: "/tmp/custom-workflow.md",
+        port: 4010
+      })
+    );
+  });
+
   it("returns a nonzero code when startup fails", async () => {
     const createService = vi.fn().mockResolvedValue({
       start: vi.fn().mockRejectedValue(new Error("boom")),
@@ -55,5 +75,18 @@ describe("runCli", () => {
 
     expect(exitCode).toBe(1);
     expect(stderr).toHaveBeenCalled();
+  });
+
+  it("returns a nonzero code when --port is invalid", async () => {
+    const stderr = vi.fn();
+
+    const exitCode = await runCli(["--port", "abc"], {
+      cwd: "/repo",
+      createService: vi.fn(),
+      stderr
+    });
+
+    expect(exitCode).toBe(1);
+    expect(stderr).toHaveBeenCalledWith(expect.stringContaining("invalid --port"));
   });
 });

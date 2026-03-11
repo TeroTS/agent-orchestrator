@@ -1,4 +1,7 @@
-import { CodexAppServerClient } from "./codex-app-server.js";
+import {
+  CodexAppServerClient,
+  type CodexRuntimeEvent
+} from "./codex-app-server.js";
 import type { OrchestrationIssue } from "./orchestration-rules.js";
 import { createStructuredLogger, type StructuredLogger } from "./structured-logger.js";
 import {
@@ -33,6 +36,7 @@ export class AgentRunner {
     issue: OrchestrationIssue;
     attempt: number | null;
     signal?: AbortSignal;
+    onEvent?: (event: CodexRuntimeEvent) => void;
   }): Promise<{ reason: "normal" }> {
     const validation = validateWorkflowForDispatch(this.workflowDefinition);
     if (!validation.ok) {
@@ -75,7 +79,8 @@ export class AgentRunner {
       turnSandboxPolicy: config.codex.turnSandboxPolicy ?? { type: "workspaceWrite" },
       readTimeoutMs: config.codex.readTimeoutMs,
       turnTimeoutMs: config.codex.turnTimeoutMs,
-      logger: this.logger
+      logger: this.logger,
+      ...(input.onEvent ? { onEvent: input.onEvent } : {})
     });
 
     let issue = input.issue;
