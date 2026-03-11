@@ -1,6 +1,8 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { resolve } from "node:path";
 
+import { createStructuredLogger, type StructuredLogger } from "./structured-logger.js";
+
 export interface CodexRuntimeEvent {
   event: string;
   timestamp: string;
@@ -28,6 +30,7 @@ export interface CodexAppServerClientOptions {
     apiKey: string;
     fetchFn?: typeof fetch;
   };
+  logger?: StructuredLogger;
   onEvent?: (event: CodexRuntimeEvent) => void;
 }
 
@@ -65,6 +68,7 @@ interface CurrentTurn {
 
 export class CodexAppServerClient {
   private readonly options: CodexAppServerClientOptions;
+  private readonly logger: StructuredLogger;
   private process: ChildProcessWithoutNullStreams | null = null;
   private stdoutBuffer = "";
   private nextRequestId = 1;
@@ -76,6 +80,7 @@ export class CodexAppServerClient {
 
   constructor(options: CodexAppServerClientOptions) {
     this.options = options;
+    this.logger = options.logger ?? createStructuredLogger();
   }
 
   async start(): Promise<void> {
@@ -87,6 +92,9 @@ export class CodexAppServerClient {
     const child = spawn("bash", ["-lc", this.options.command], {
       cwd: workspacePath,
       stdio: ["pipe", "pipe", "pipe"]
+    });
+    this.logger.info("codex app-server starting", {
+      workspace_path: workspacePath
     });
 
     this.process = child;
@@ -102,6 +110,9 @@ export class CodexAppServerClient {
     });
 
     child.on("error", (error) => {
+      this.logger.error("codex app-server start failed", {
+        reason: error.message
+      });
       this.rejectPending(
         new CodexAppServerError("codex_not_found", "Failed to start codex app-server.", {
           cause: error
@@ -110,6 +121,7 @@ export class CodexAppServerClient {
     });
 
     child.on("exit", () => {
+      this.logger.warn("codex app-server exited", {});
       this.rejectPending(
         new CodexAppServerError("port_exit", "Codex app-server exited unexpectedly.")
       );
@@ -140,6 +152,9 @@ export class CodexAppServerClient {
         throw new CodexAppServerError("response_error", "thread/start did not return thread id.");
       }
       this.threadId = threadId;
+      this.logger.info("codex app-server ready", {
+        thread_id: threadId
+      });
     } catch (error) {
       this.emit({
         event: "startup_failed",
@@ -159,6 +174,10 @@ export class CodexAppServerClient {
     }
 
     this.turnStartPending = true;
+    this.logger.info("codex turn starting", {
+      thread_id: this.threadId,
+      title: input.title
+    });
     const turnResult = await this.request("turn/start", {
       threadId: this.threadId,
       input: [{ type: "text", text: input.prompt }],
@@ -202,6 +221,11 @@ export class CodexAppServerClient {
           turnId
         }
       });
+      this.logger.info("codex turn started", {
+        session_id: sessionId,
+        thread_id: this.threadId,
+        turn_id: turnId
+      });
 
       this.turnStartPending = false;
       const bufferedMessages = this.bufferedTurnMessages;
@@ -221,6 +245,9 @@ export class CodexAppServerClient {
     }
 
     if (!child.killed) {
+      this.logger.info("codex app-server stopping", {
+        pid: child.pid
+      });
       child.kill("SIGTERM");
     }
   }
@@ -244,6 +271,9 @@ export class CodexAppServerClient {
       try {
         message = JSON.parse(line);
       } catch {
+        this.logger.warn("codex malformed stdout line", {
+          line
+        });
         this.emit({
           event: "malformed",
           message: line
@@ -288,6 +318,7 @@ export class CodexAppServerClient {
           approved: true
         }
       });
+      this.logger.info("codex approval auto approved", {});
       this.emit({
         event: "approval_auto_approved",
         payload: message.params
@@ -308,6 +339,9 @@ export class CodexAppServerClient {
           error: "unsupported_tool_call"
         }
       });
+      this.logger.warn("codex unsupported tool call", {
+        tool_name: typeof message.params?.name === "string" ? message.params.name : "unknown"
+      });
       this.emit({
         event: "unsupported_tool_call",
         payload: message.params
@@ -316,6 +350,7 @@ export class CodexAppServerClient {
     }
 
     if (method === "item/tool/requestUserInput") {
+      this.logger.error("codex turn requested user input", {});
       this.emit({
         event: "turn_input_required",
         payload: message.params
@@ -345,6 +380,9 @@ export class CodexAppServerClient {
         usage: extractUsage(message.params),
         payload: message.params
       });
+      this.logger.info("codex turn completed", {
+        session_id: currentTurn.sessionId
+      });
       currentTurn.resolve({
         outcome: "completed",
         threadId: currentTurn.threadId,
@@ -363,6 +401,10 @@ export class CodexAppServerClient {
       clearTimeout(currentTurn.timer);
       this.currentTurn = null;
       const code = method === "turn/failed" ? "turn_failed" : "turn_cancelled";
+      this.logger.warn("codex turn ended without completion", {
+        code,
+        session_id: currentTurn.sessionId
+      });
       this.emit({
         event: code,
         sessionId: currentTurn.sessionId,
@@ -442,8 +484,21 @@ export class CodexAppServerClient {
       id: message.id,
       result
     });
+    if (result.success === true) {
+      this.logger.info("linear graphql tool executed", {});
+    } else {
+      this.logger.warn("linear graphql tool failed", {
+        error_code:
+          typeof result.error === "object" &&
+          result.error !== null &&
+          "code" in result.error &&
+          typeof result.error.code === "string"
+            ? result.error.code
+            : "unknown"
+      });
+    }
     this.emit({
-      event: "linear_graphql_executed",
+      event: result.success === true ? "linear_graphql_executed" : "linear_graphql_failed",
       payload: result
     });
   }
@@ -485,10 +540,14 @@ async function executeLinearGraphqlToolCall(
 ): Promise<Record<string, unknown>> {
   const parsed = parseLinearGraphqlArguments(input);
   if (!parsed.ok) {
-    return {
-      success: false,
-      error: parsed.error
-    };
+    return errorResult(parsed.error.code, parsed.error.message);
+  }
+
+  if (!config.endpoint.trim() || !config.apiKey.trim()) {
+    return errorResult(
+      "linear_graphql_missing_auth",
+      "Linear GraphQL tool is not configured with endpoint and auth."
+    );
   }
 
   const fetchFn = config.fetchFn ?? fetch;
@@ -505,11 +564,39 @@ async function executeLinearGraphqlToolCall(
         variables: parsed.variables
       })
     });
-    const body = await response.json();
+    const responseText = await response.text();
+
+    if (!response.ok) {
+      return errorResult("linear_api_status", `Linear responded with HTTP ${response.status}.`, {
+        status: response.status,
+        body: responseText || null
+      });
+    }
+
+    let body: unknown;
+    try {
+      body = responseText ? JSON.parse(responseText) : null;
+    } catch {
+      return errorResult(
+        "linear_graphql_invalid_json_response",
+        "Linear returned a non-JSON response body."
+      );
+    }
+
+    if (!isPlainObject(body)) {
+      return errorResult(
+        "linear_graphql_invalid_response",
+        "Linear returned a malformed GraphQL response."
+      );
+    }
 
     if (Array.isArray(body?.errors) && body.errors.length > 0) {
       return {
         success: false,
+        error: {
+          code: "linear_graphql_errors",
+          message: "Linear returned GraphQL errors."
+        },
         body
       };
     }
@@ -519,23 +606,56 @@ async function executeLinearGraphqlToolCall(
       body
     };
   } catch (error) {
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : String(error)
-    };
+    return errorResult(
+      "linear_api_request",
+      error instanceof Error ? error.message : String(error)
+    );
   }
 }
 
 function parseLinearGraphqlArguments(
   input: unknown
-): { ok: true; query: string; variables: Record<string, unknown> } | { ok: false; error: string } {
+):
+  | { ok: true; query: string; variables: Record<string, unknown> }
+  | {
+      ok: false;
+      error: {
+        code: string;
+        message: string;
+      };
+    } {
   if (typeof input === "string") {
     const query = input.trim();
-    return query ? { ok: true, query, variables: {} } : { ok: false, error: "invalid_input" };
+    return query
+      ? { ok: true, query, variables: {} }
+      : {
+          ok: false,
+          error: {
+            code: "linear_graphql_invalid_input",
+            message: "query must be a non-empty string."
+          }
+        };
   }
 
   if (!input || typeof input !== "object" || Array.isArray(input)) {
-    return { ok: false, error: "invalid_input" };
+    return {
+      ok: false,
+      error: {
+        code: "linear_graphql_invalid_input",
+        message: "tool input must be a query string or an object with query and variables."
+      }
+    };
+  }
+
+  const extraKeys = Object.keys(input).filter((key) => key !== "query" && key !== "variables");
+  if (extraKeys.length > 0) {
+    return {
+      ok: false,
+      error: {
+        code: "linear_graphql_invalid_input",
+        message: `unexpected fields: ${extraKeys.join(", ")}`
+      }
+    };
   }
 
   const query = typeof (input as { query?: unknown }).query === "string"
@@ -544,16 +664,34 @@ function parseLinearGraphqlArguments(
   const variables = (input as { variables?: unknown }).variables;
 
   if (!query) {
-    return { ok: false, error: "invalid_input" };
+    return {
+      ok: false,
+      error: {
+        code: "linear_graphql_invalid_input",
+        message: "query must be a non-empty string."
+      }
+    };
   }
 
-  if (variables != null && (typeof variables !== "object" || Array.isArray(variables))) {
-    return { ok: false, error: "invalid_input" };
+  if (variables != null && !isPlainObject(variables)) {
+    return {
+      ok: false,
+      error: {
+        code: "linear_graphql_invalid_input",
+        message: "variables must be a JSON object when provided."
+      }
+    };
   }
 
   const operationMatches = query.match(/\b(query|mutation|subscription)\b/g);
   if ((operationMatches?.length ?? 0) > 1) {
-    return { ok: false, error: "multiple_operations_not_supported" };
+    return {
+      ok: false,
+      error: {
+        code: "linear_graphql_multiple_operations",
+        message: "query must contain exactly one GraphQL operation."
+      }
+    };
   }
 
   return {
@@ -561,4 +699,23 @@ function parseLinearGraphqlArguments(
     query,
     variables: (variables as Record<string, unknown> | undefined) ?? {}
   };
+}
+
+function errorResult(
+  code: string,
+  message: string,
+  extra: Record<string, unknown> = {}
+): Record<string, unknown> {
+  return {
+    success: false,
+    error: {
+      code,
+      message,
+      ...extra
+    }
+  };
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

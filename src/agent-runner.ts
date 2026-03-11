@@ -1,5 +1,6 @@
 import { CodexAppServerClient } from "./codex-app-server.js";
 import type { OrchestrationIssue } from "./orchestration-rules.js";
+import { createStructuredLogger, type StructuredLogger } from "./structured-logger.js";
 import {
   ensureWorkspace,
   finalizeWorkspaceRun,
@@ -14,15 +15,18 @@ import {
 export interface AgentRunnerOptions {
   workflowDefinition: WorkflowDefinition;
   issueStateRefresher: (issueIds: string[]) => Promise<OrchestrationIssue[]>;
+  logger?: StructuredLogger;
 }
 
 export class AgentRunner {
   private readonly workflowDefinition: WorkflowDefinition;
   private readonly issueStateRefresher: (issueIds: string[]) => Promise<OrchestrationIssue[]>;
+  private readonly logger: StructuredLogger;
 
   constructor(options: AgentRunnerOptions) {
     this.workflowDefinition = options.workflowDefinition;
     this.issueStateRefresher = options.issueStateRefresher;
+    this.logger = options.logger ?? createStructuredLogger();
   }
 
   async runAttempt(input: {
@@ -35,16 +39,32 @@ export class AgentRunner {
       throw new Error(validation.errors.join(", "));
     }
     const config = validation.config;
+    this.logger.info("run attempt started", {
+      attempt: input.attempt ?? 0,
+      issue_id: input.issue.id,
+      issue_identifier: input.issue.identifier
+    });
 
     const workspace = await ensureWorkspace({
       workspaceRoot: config.workspace.root,
       issueIdentifier: input.issue.identifier,
       hooks: config.hooks
     });
+    this.logger.info("workspace ready", {
+      created_now: workspace.createdNow,
+      issue_id: input.issue.id,
+      issue_identifier: input.issue.identifier,
+      workspace_path: workspace.path
+    });
 
     await prepareWorkspaceForRun({
       workspacePath: workspace.path,
       hooks: config.hooks
+    });
+    this.logger.info("workspace prepared", {
+      issue_id: input.issue.id,
+      issue_identifier: input.issue.identifier,
+      workspace_path: workspace.path
     });
 
     const client = new CodexAppServerClient({
@@ -54,7 +74,8 @@ export class AgentRunner {
       threadSandbox: config.codex.threadSandbox ?? "workspace-write",
       turnSandboxPolicy: config.codex.turnSandboxPolicy ?? { type: "workspaceWrite" },
       readTimeoutMs: config.codex.readTimeoutMs,
-      turnTimeoutMs: config.codex.turnTimeoutMs
+      turnTimeoutMs: config.codex.turnTimeoutMs,
+      logger: this.logger
     });
 
     let issue = input.issue;
@@ -69,6 +90,11 @@ export class AgentRunner {
       }
 
       await client.start();
+      this.logger.info("codex session ready", {
+        issue_id: issue.id,
+        issue_identifier: issue.identifier,
+        workspace_path: workspace.path
+      });
 
       for (let turnNumber = 1; turnNumber <= config.agent.maxTurns; turnNumber += 1) {
         if (input.signal?.aborted) {
@@ -80,14 +106,29 @@ export class AgentRunner {
             ? await renderPromptTemplate(this.workflowDefinition, { issue, attempt: input.attempt })
             : buildContinuationPrompt(issue, turnNumber, config.agent.maxTurns);
 
+        this.logger.info("run turn started", {
+          issue_id: issue.id,
+          issue_identifier: issue.identifier,
+          turn_number: turnNumber
+        });
         await client.runTurn({
           prompt,
           title: `${issue.identifier}: ${issue.title}`
+        });
+        this.logger.info("run turn completed", {
+          issue_id: issue.id,
+          issue_identifier: issue.identifier,
+          turn_number: turnNumber
         });
 
         const refreshedIssues = await this.issueStateRefresher([issue.id]);
         if (refreshedIssues[0]) {
           issue = refreshedIssues[0];
+          this.logger.info("issue state refreshed", {
+            issue_id: issue.id,
+            issue_identifier: issue.identifier,
+            state: issue.state
+          });
         }
 
         if (!config.tracker.activeStates.map((state) => state.toLowerCase()).includes(issue.state.toLowerCase())) {
@@ -95,13 +136,31 @@ export class AgentRunner {
         }
       }
 
+      this.logger.info("run attempt completed", {
+        issue_id: issue.id,
+        issue_identifier: issue.identifier,
+        workspace_path: workspace.path
+      });
       return { reason: "normal" };
+    } catch (error) {
+      this.logger.error("run attempt failed", {
+        issue_id: issue.id,
+        issue_identifier: issue.identifier,
+        reason: error instanceof Error ? error.message : String(error),
+        workspace_path: workspace.path
+      });
+      throw error;
     } finally {
       input.signal?.removeEventListener("abort", abortHandler);
       await client.stop();
       await finalizeWorkspaceRun({
         workspacePath: workspace.path,
         hooks: config.hooks
+      });
+      this.logger.info("workspace finalized", {
+        issue_id: issue.id,
+        issue_identifier: issue.identifier,
+        workspace_path: workspace.path
       });
     }
   }

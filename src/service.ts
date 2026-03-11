@@ -73,7 +73,8 @@ export async function createService(input: {
         const controller = new AbortController();
         const runner = new AgentRunner({
           workflowDefinition: workflowStore.current(),
-          issueStateRefresher: trackerFacade.fetchIssueStatesByIds
+          issueStateRefresher: trackerFacade.fetchIssueStatesByIds,
+          logger
         });
 
         return {
@@ -107,12 +108,16 @@ export async function createService(input: {
   return {
     async start() {
       await orchestrator.start();
+      logger.info("service started", {
+        workflow_path: input.workflowPath
+      });
       boundStatusPort = input.port ?? extractServerPort(workflowStore.current());
       statusServer = await bindStatusServer(
         statusServer,
         input.startStatusServerFn ?? startStatusServer,
         boundStatusPort,
-        orchestrator
+        orchestrator,
+        logger
       );
 
       const watchFactory = input.watchFactory ?? ((path, listener) => watch(path, listener));
@@ -135,7 +140,8 @@ export async function createService(input: {
             statusServer,
             input.startStatusServerFn ?? startStatusServer,
             nextPort,
-            orchestrator
+            orchestrator,
+            logger
           );
           boundStatusPort = nextPort;
         }
@@ -151,6 +157,9 @@ export async function createService(input: {
       }
 
       await orchestrator.stop();
+      logger.info("service stopped", {
+        workflow_path: input.workflowPath
+      });
     }
   };
 }
@@ -194,7 +203,8 @@ async function bindStatusServer(
   currentServer: StatusServerHandle | null,
   startStatusServerFn: typeof startStatusServer,
   port: number | undefined,
-  orchestrator: SymphonyOrchestrator
+  orchestrator: SymphonyOrchestrator,
+  logger: StructuredLogger
 ): Promise<StatusServerHandle | null> {
   if (currentServer) {
     await currentServer.stop();
@@ -210,6 +220,7 @@ async function bindStatusServer(
     refresh: async () => {
       await orchestrator.tick();
       return orchestrator.snapshot();
-    }
+    },
+    logger
   });
 }

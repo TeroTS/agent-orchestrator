@@ -38,6 +38,11 @@ function sendRaw(text) {
 
 rl.on("line", (line) => {
   const msg = JSON.parse(line);
+  if (typeof msg.id === "string" && msg.id.startsWith("tool-") && "result" in msg) {
+    send({ method: "notification", params: { toolResult: msg.result } });
+    return;
+  }
+
   if (msg.method === "initialize") {
     send({ id: msg.id, result: { ok: true } });
     return;
@@ -84,7 +89,7 @@ rl.on("line", (line) => {
       return;
     }
 
-    if (scenario === "linear-graphql") {
+    if (scenario === "linear-graphql" || scenario === "linear-graphql-status-error" || scenario === "linear-graphql-invalid-json" || scenario === "linear-graphql-errors") {
       send({
         id: "tool-graphql-1",
         method: "item/tool/call",
@@ -92,6 +97,38 @@ rl.on("line", (line) => {
           name: "linear_graphql",
           arguments: {
             query: "query Viewer { viewer { id } }"
+          }
+        }
+      });
+      setTimeout(() => send({ method: "turn/completed", params: {} }), 5);
+      return;
+    }
+
+    if (scenario === "linear-graphql-invalid-input") {
+      send({
+        id: "tool-graphql-1",
+        method: "item/tool/call",
+        params: {
+          name: "linear_graphql",
+          arguments: {
+            query: "   ",
+            variables: [],
+            extra: true
+          }
+        }
+      });
+      setTimeout(() => send({ method: "turn/completed", params: {} }), 5);
+      return;
+    }
+
+    if (scenario === "linear-graphql-multi-operation") {
+      send({
+        id: "tool-graphql-1",
+        method: "item/tool/call",
+        params: {
+          name: "linear_graphql",
+          arguments: {
+            query: "query One { viewer { id } } query Two { viewer { id } }"
           }
         }
       });
@@ -277,5 +314,149 @@ describe("CodexAppServerClient", () => {
     expect(fetchFn).toHaveBeenCalledTimes(1);
     expect(fetchFn.mock.calls[0]?.[0]).toBe("https://api.linear.app/graphql");
     expect(events.map((event) => event.event)).toContain("linear_graphql_executed");
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          event: "notification",
+          payload: {
+            toolResult: {
+              success: true,
+              body: {
+                data: {
+                  viewer: {
+                    id: "viewer-1"
+                  }
+                }
+              }
+            }
+          }
+        })
+      ])
+    );
+  });
+
+  it("rejects malformed linear_graphql input before making a request", async () => {
+    const { dir, scriptPath } = await createScenarioDir(
+      "codex-linear-invalid-input",
+      "linear-graphql-invalid-input"
+    );
+    const events: CodexRuntimeEvent[] = [];
+    const fetchFn = vi.fn();
+    const client = new CodexAppServerClient({
+      command: `${process.execPath} ${scriptPath}`,
+      workspacePath: dir,
+      approvalPolicy: "never",
+      threadSandbox: "workspace-write",
+      turnSandboxPolicy: { type: "workspaceWrite" },
+      readTimeoutMs: 500,
+      turnTimeoutMs: 1000,
+      onEvent: (event) => events.push(event),
+      linearGraphql: {
+        endpoint: "https://api.linear.app/graphql",
+        apiKey: "linear-token",
+        fetchFn
+      }
+    });
+
+    await client.start();
+    await client.runTurn({
+      prompt: "Hello",
+      title: "ABC-7: Example"
+    });
+    await client.stop();
+
+    expect(fetchFn).not.toHaveBeenCalled();
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          event: "notification",
+          payload: expect.objectContaining({
+            toolResult: expect.objectContaining({
+              success: false,
+              error: expect.objectContaining({
+                code: "linear_graphql_invalid_input"
+              })
+            })
+          })
+        })
+      ])
+    );
+  });
+
+  it("returns structured errors for multiple operations, http failures, invalid json, and graphql errors", async () => {
+    const scenarios = [
+      {
+        name: "codex-linear-multi-op",
+        scenario: "linear-graphql-multi-operation",
+        fetchFn: vi.fn(),
+        expectedCode: "linear_graphql_multiple_operations"
+      },
+      {
+        name: "codex-linear-status-error",
+        scenario: "linear-graphql-status-error",
+        fetchFn: vi.fn().mockResolvedValue(new Response("bad gateway", { status: 502 })),
+        expectedCode: "linear_api_status"
+      },
+      {
+        name: "codex-linear-invalid-json",
+        scenario: "linear-graphql-invalid-json",
+        fetchFn: vi.fn().mockResolvedValue(new Response("not-json", { status: 200 })),
+        expectedCode: "linear_graphql_invalid_json_response"
+      },
+      {
+        name: "codex-linear-graphql-errors",
+        scenario: "linear-graphql-errors",
+        fetchFn: vi.fn().mockResolvedValue(
+          new Response(JSON.stringify({ errors: [{ message: "broken" }] }), {
+            status: 200,
+            headers: { "content-type": "application/json" }
+          })
+        ),
+        expectedCode: "linear_graphql_errors"
+      }
+    ] as const;
+
+    for (const entry of scenarios) {
+      const { dir, scriptPath } = await createScenarioDir(entry.name, entry.scenario);
+      const events: CodexRuntimeEvent[] = [];
+      const client = new CodexAppServerClient({
+        command: `${process.execPath} ${scriptPath}`,
+        workspacePath: dir,
+        approvalPolicy: "never",
+        threadSandbox: "workspace-write",
+        turnSandboxPolicy: { type: "workspaceWrite" },
+        readTimeoutMs: 500,
+        turnTimeoutMs: 1000,
+        onEvent: (event) => events.push(event),
+        linearGraphql: {
+          endpoint: "https://api.linear.app/graphql",
+          apiKey: "linear-token",
+          fetchFn: entry.fetchFn
+        }
+      });
+
+      await client.start();
+      await client.runTurn({
+        prompt: "Hello",
+        title: "ABC-8: Example"
+      });
+      await client.stop();
+
+      expect(events).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            event: "notification",
+            payload: expect.objectContaining({
+              toolResult: expect.objectContaining({
+                success: false,
+                error: expect.objectContaining({
+                  code: entry.expectedCode
+                })
+              })
+            })
+          })
+        ])
+      );
+    }
   });
 });

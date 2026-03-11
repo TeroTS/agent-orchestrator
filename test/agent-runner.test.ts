@@ -158,6 +158,80 @@ rl.on("line", async (line) => {
       .map((line) => JSON.parse(line));
     expect(prompts).toHaveLength(2);
   });
+
+  it("logs run attempt lifecycle events", async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "agent-runner-workspace-"));
+    tempDirs.push(workspaceRoot);
+    const appServerDir = await mkdtemp(join(tmpdir(), "agent-runner-server-"));
+    tempDirs.push(appServerDir);
+    const promptLogPath = join(appServerDir, "prompts.log");
+    const scriptPath = join(appServerDir, "fake-app-server.mjs");
+
+    await writeFile(
+      scriptPath,
+      `
+import readline from "node:readline";
+
+const rl = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });
+
+function send(message) {
+  process.stdout.write(JSON.stringify(message) + "\\n");
+}
+
+rl.on("line", (line) => {
+  const msg = JSON.parse(line);
+  if (msg.method === "initialize") {
+    send({ id: msg.id, result: { ok: true } });
+    return;
+  }
+  if (msg.method === "thread/start") {
+    send({ id: msg.id, result: { thread: { id: "thread-1" } } });
+    return;
+  }
+  if (msg.method === "turn/start") {
+    send({ id: msg.id, result: { turn: { id: "turn-1" } } });
+    send({ method: "turn/completed", params: {} });
+  }
+});
+`,
+      "utf8"
+    );
+
+    const logger = {
+      debug: vi.fn(),
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn()
+    };
+
+    const runner = new AgentRunner({
+      workflowDefinition: validWorkflowDefinition(workspaceRoot, `${process.execPath} ${scriptPath}`, promptLogPath),
+      issueStateRefresher: vi.fn().mockResolvedValue([
+        makeIssue({ id: "issue-1", identifier: "ABC-1", state: "Done" })
+      ]),
+      logger
+    });
+
+    await runner.runAttempt({
+      issue: makeIssue({ id: "issue-1", identifier: "ABC-1", state: "In Progress" }),
+      attempt: null
+    });
+
+    expect(logger.info).toHaveBeenCalledWith(
+      "run attempt started",
+      expect.objectContaining({
+        issue_id: "issue-1",
+        issue_identifier: "ABC-1"
+      })
+    );
+    expect(logger.info).toHaveBeenCalledWith(
+      "run attempt completed",
+      expect.objectContaining({
+        issue_id: "issue-1",
+        issue_identifier: "ABC-1"
+      })
+    );
+  });
 });
 
 function validWorkflowDefinition(
