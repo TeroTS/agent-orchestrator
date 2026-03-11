@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$repo_root"
+
+run_step() {
+  local label="$1"
+  shift
+  echo
+  echo "==> $label"
+  "$@"
+}
+
+run_step "Format check" npm run format:check
+run_step "Lint" npm run lint
+run_step "Typecheck" npm run typecheck
+run_step "Tests" npm test
+run_step "Build" npm run build

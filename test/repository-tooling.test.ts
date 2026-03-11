@@ -20,6 +20,7 @@ describe("repository tooling", () => {
       "lint:fix": expect.any(String),
       format: expect.any(String),
       "format:check": expect.any(String),
+      typecheck: expect.any(String),
       "test:coverage": expect.any(String),
     });
 
@@ -46,5 +47,23 @@ describe("repository tooling", () => {
     await expect(
       readFile(resolve(repoRoot, "vitest.config.ts"), "utf8"),
     ).resolves.toContain("coverage");
+    await expect(
+      readFile(resolve(repoRoot, "scripts/setup"), "utf8"),
+    ).resolves.toContain("npm ci");
+    await expect(
+      readFile(resolve(repoRoot, "scripts/verify"), "utf8"),
+    ).resolves.toContain("npm run format:check");
+    await expect(
+      readFile(resolve(repoRoot, "scripts/verify"), "utf8"),
+    ).resolves.toContain("npm run typecheck");
+    await expect(
+      readFile(resolve(repoRoot, ".nvmrc"), "utf8"),
+    ).resolves.toMatch(/\d+\.\d+\.\d+/);
+    await expect(
+      readFile(resolve(repoRoot, "AGENTS.md"), "utf8"),
+    ).resolves.toEqual(expect.stringContaining("./scripts/setup"));
+    await expect(
+      readFile(resolve(repoRoot, "AGENTS.md"), "utf8"),
+    ).resolves.toEqual(expect.stringContaining("./scripts/verify"));
   });
 });

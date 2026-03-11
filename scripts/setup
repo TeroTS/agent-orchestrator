@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$repo_root"
+
+if ! command -v npm >/dev/null 2>&1; then
+  echo "npm is required but was not found in PATH." >&2
+  exit 1
+fi
+
+echo "Installing dependencies with npm ci..."
+npm ci

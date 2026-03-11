@@ -38,7 +38,7 @@ Known limitation:
 Install dependencies:
 
 ```bash
-npm install
+./scripts/setup
 ```
 
 Edit the repository-owned [`WORKFLOW.md`](./WORKFLOW.md):
@@ -58,7 +58,7 @@ export LINEAR_API_KEY=your-linear-api-key
 Build and run:
 
 ```bash
-npm run build
+./scripts/verify
 npm start
 ```
 
