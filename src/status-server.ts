@@ -8,13 +8,39 @@ export interface StatusServerHandle {
 export async function startStatusServer(options: {
   port: number;
   snapshot: () => unknown;
+  refresh?: () => Promise<unknown> | unknown;
 }): Promise<StatusServerHandle> {
-  const server = createServer((request, response) => {
+  const server = createServer(async (request, response) => {
     const url = request.url ?? "/";
 
     if (url === "/api/v1/state") {
       response.writeHead(200, { "content-type": "application/json; charset=utf-8" });
       response.end(JSON.stringify(options.snapshot()));
+      return;
+    }
+
+    if (url === "/api/v1/refresh") {
+      const payload = options.refresh ? await options.refresh() : options.snapshot();
+      response.writeHead(200, { "content-type": "application/json; charset=utf-8" });
+      response.end(JSON.stringify(payload));
+      return;
+    }
+
+    if (url.startsWith("/api/v1/") && url !== "/api/v1/state" && url !== "/api/v1/refresh") {
+      const identifier = decodeURIComponent(url.slice("/api/v1/".length));
+      const snapshot = options.snapshot() as {
+        running?: Array<{ identifier: string }>;
+        retries?: Array<{ identifier: string }>;
+        completedIssueIds?: string[];
+      };
+      const running =
+        snapshot.running?.find((entry) => entry.identifier === identifier) ?? null;
+      const retry =
+        snapshot.retries?.find((entry) => entry.identifier === identifier) ?? null;
+      const completed = snapshot.completedIssueIds?.includes(identifier) ?? false;
+
+      response.writeHead(200, { "content-type": "application/json; charset=utf-8" });
+      response.end(JSON.stringify({ running, retry, completed }));
       return;
     }
 

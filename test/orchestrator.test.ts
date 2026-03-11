@@ -1,6 +1,7 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 
 import { SymphonyOrchestrator } from "../src/orchestrator.js";
+import { createStructuredLogger } from "../src/structured-logger.js";
 import type { WorkflowDefinition } from "../src/workflow-loader.js";
 import type { OrchestrationIssue } from "../src/orchestration-rules.js";
 
@@ -25,7 +26,8 @@ describe("SymphonyOrchestrator", () => {
       }),
       tracker: fakeTracker(),
       runner: fakeRunner(),
-      removeWorkspace: vi.fn()
+      removeWorkspace: vi.fn(),
+      logger: silentLogger()
     });
 
     await expect(orchestrator.start()).rejects.toThrow(/tracker.api_key is required/);
@@ -50,7 +52,8 @@ describe("SymphonyOrchestrator", () => {
       runner: {
         startRun
       },
-      removeWorkspace
+      removeWorkspace,
+      logger: silentLogger()
     });
 
     await orchestrator.start();
@@ -84,7 +87,8 @@ describe("SymphonyOrchestrator", () => {
           promise: runPromise
         })
       },
-      removeWorkspace
+      removeWorkspace,
+      logger: silentLogger()
     });
 
     await orchestrator.start();
@@ -112,7 +116,8 @@ describe("SymphonyOrchestrator", () => {
           })
         })
       },
-      removeWorkspace: vi.fn()
+      removeWorkspace: vi.fn(),
+      logger: silentLogger()
     });
 
     await orchestrator.start();
@@ -152,7 +157,8 @@ describe("SymphonyOrchestrator", () => {
       runner: {
         startRun
       },
-      removeWorkspace: vi.fn()
+      removeWorkspace: vi.fn(),
+      logger: silentLogger()
     });
 
     await orchestrator.start();
@@ -232,4 +238,10 @@ function makeIssue(overrides: Partial<OrchestrationIssue> = {}): OrchestrationIs
     createdAt: overrides.createdAt ?? new Date("2026-03-01T10:00:00.000Z"),
     updatedAt: overrides.updatedAt ?? new Date("2026-03-01T10:00:00.000Z")
   };
+}
+
+function silentLogger() {
+  return createStructuredLogger({
+    write: () => {}
+  });
 }

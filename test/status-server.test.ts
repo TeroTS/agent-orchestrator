@@ -17,6 +17,9 @@ describe("startStatusServer", () => {
         running: [],
         retries: [],
         completedIssueIds: ["ABC-1"]
+      }),
+      refresh: async () => ({
+        refreshed: true
       })
     });
     servers.push(server);
@@ -32,6 +35,58 @@ describe("startStatusServer", () => {
     const dashboardResponse = await fetch(`${server.baseUrl}/`);
     expect(dashboardResponse.status).toBe(200);
     await expect(dashboardResponse.text()).resolves.toContain("completedIssueIds");
+  });
+
+  it("serves issue-scoped state and a refresh endpoint", async () => {
+    const server = await startStatusServer({
+      port: 0,
+      snapshot: () => ({
+        running: [
+          {
+            issueId: "issue-1",
+            identifier: "ABC-1",
+            state: "In Progress",
+            startedAt: "2026-03-11T00:00:00.000Z"
+          }
+        ],
+        retries: [
+          {
+            issueId: "issue-2",
+            identifier: "ABC-2",
+            attempt: 2,
+            dueAtMs: 123456,
+            error: "retrying"
+          }
+        ],
+        completedIssueIds: ["ABC-3"]
+      }),
+      refresh: async () => ({
+        refreshed: true
+      })
+    });
+    servers.push(server);
+
+    const issueResponse = await fetch(`${server.baseUrl}/api/v1/ABC-2`);
+    expect(issueResponse.status).toBe(200);
+    await expect(issueResponse.json()).resolves.toEqual({
+      running: null,
+      retry: {
+        issueId: "issue-2",
+        identifier: "ABC-2",
+        attempt: 2,
+        dueAtMs: 123456,
+        error: "retrying"
+      },
+      completed: false
+    });
+
+    const refreshResponse = await fetch(`${server.baseUrl}/api/v1/refresh`, {
+      method: "POST"
+    });
+    expect(refreshResponse.status).toBe(200);
+    await expect(refreshResponse.json()).resolves.toEqual({
+      refreshed: true
+    });
   });
 
   it("returns 404 for unknown paths", async () => {

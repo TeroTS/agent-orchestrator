@@ -2,8 +2,9 @@ import { rm } from "node:fs/promises";
 import { watch } from "node:fs";
 
 import { AgentRunner } from "./agent-runner.js";
-import { SymphonyOrchestrator } from "./orchestrator.js";
+import { SymphonyOrchestrator, type WorkflowStoreLike } from "./orchestrator.js";
 import { startStatusServer, type StatusServerHandle } from "./status-server.js";
+import { createStructuredLogger, type StructuredLogger } from "./structured-logger.js";
 import { LinearTrackerClient } from "./tracker/linear-client.js";
 import {
   validateWorkflowForDispatch,
@@ -11,43 +12,63 @@ import {
   type WorkflowDefinition
 } from "./workflow-loader.js";
 import { WorkflowStore } from "./workflow-store.js";
-import { workspacePathFor } from "./workspace-manager.js";
 
 export interface SymphonyService {
   start(): Promise<void>;
   stop(): Promise<void>;
 }
 
+type TrackerFacade = {
+  fetchCandidateIssues(activeStates: string[]): Promise<any[]>;
+  fetchIssuesByStates(states: string[]): Promise<any[]>;
+  fetchIssueStatesByIds(issueIds: string[]): Promise<any[]>;
+};
+
+type RunnerFacade = {
+  startRun(input: { issue: any; attempt: number | null }): { cancel(): void; promise: Promise<any> };
+};
+
 export async function createService(input: {
   workflowPath: string;
   port?: number;
+  workflowStore?: WorkflowStoreLike;
+  tracker?: TrackerFacade;
+  runner?: RunnerFacade;
+  watchFactory?: (path: string, listener: () => void | Promise<void>) => { close(): void };
+  startStatusServerFn?: typeof startStatusServer;
+  logger?: StructuredLogger;
 }): Promise<SymphonyService> {
-  const workflowStore = new WorkflowStore({
-    workflowPath: input.workflowPath
-  });
+  const logger = input.logger ?? createStructuredLogger();
+  const workflowStore =
+    input.workflowStore ??
+    new WorkflowStore({
+      workflowPath: input.workflowPath
+    });
 
   let statusServer: StatusServerHandle | null = null;
-  let watcher: ReturnType<typeof watch> | null = null;
+  let boundStatusPort: number | undefined;
+  let watcher: { close(): void } | null = null;
 
-  const trackerFacade = {
-    fetchCandidateIssues: async (activeStates: string[]) => {
-      const client = createTrackerClient(workflowStore.current());
-      return client.fetchCandidateIssues(activeStates);
-    },
-    fetchIssuesByStates: async (states: string[]) => {
-      const client = createTrackerClient(workflowStore.current());
-      return client.fetchIssuesByStates(states);
-    },
-    fetchIssueStatesByIds: async (issueIds: string[]) => {
-      const client = createTrackerClient(workflowStore.current());
-      return client.fetchIssueStatesByIds(issueIds);
-    }
-  };
+  const trackerFacade: TrackerFacade =
+    input.tracker ??
+    {
+      fetchCandidateIssues: async (activeStates: string[]) => {
+        const client = createTrackerClient(workflowStore.current());
+        return client.fetchCandidateIssues(activeStates);
+      },
+      fetchIssuesByStates: async (states: string[]) => {
+        const client = createTrackerClient(workflowStore.current());
+        return client.fetchIssuesByStates(states);
+      },
+      fetchIssueStatesByIds: async (issueIds: string[]) => {
+        const client = createTrackerClient(workflowStore.current());
+        return client.fetchIssueStatesByIds(issueIds);
+      }
+    };
 
-  const orchestrator = new SymphonyOrchestrator({
-    workflowStore,
-    tracker: trackerFacade,
-    runner: {
+  const runnerFacade: RunnerFacade =
+    input.runner ??
+    {
       startRun: ({ issue, attempt }) => {
         const controller = new AbortController();
         const runner = new AgentRunner({
@@ -61,38 +82,74 @@ export async function createService(input: {
             issue,
             attempt,
             signal: controller.signal
+          }).catch(async (error) => {
+            logger.error("worker attempt failed", {
+              issue_id: issue.id,
+              issue_identifier: issue.identifier,
+              reason: error instanceof Error ? error.message : String(error)
+            });
+            throw error;
           })
         };
       }
-    },
+    };
+
+  const orchestrator = new SymphonyOrchestrator({
+    workflowStore,
+    tracker: trackerFacade,
+    runner: runnerFacade,
     removeWorkspace: async (workspacePath) => {
       await rm(workspacePath, { recursive: true, force: true });
-    }
+    },
+    logger
   });
 
   return {
     async start() {
       await orchestrator.start();
+      boundStatusPort = input.port ?? extractServerPort(workflowStore.current());
+      statusServer = await bindStatusServer(
+        statusServer,
+        input.startStatusServerFn ?? startStatusServer,
+        boundStatusPort,
+        orchestrator
+      );
 
-      const port = input.port ?? extractServerPort(workflowStore.current());
-      if (typeof port === "number") {
-        statusServer = await startStatusServer({
-          port,
-          snapshot: () => orchestrator.snapshot()
-        });
-      }
+      const watchFactory = input.watchFactory ?? ((path, listener) => watch(path, listener));
+      watcher = watchFactory(input.workflowPath, async () => {
+        const reload = await workflowStore.reload();
+        if (!reload.ok) {
+          logger.warn("workflow reload failed", {
+            workflow_path: input.workflowPath
+          });
+          return;
+        }
 
-      watcher = watch(input.workflowPath, () => {
-        void workflowStore.reload();
+        const nextPort = input.port ?? extractServerPort(workflowStore.current());
+        if (boundStatusPort !== nextPort) {
+          logger.info("status server rebind", {
+            from_port: boundStatusPort ?? "disabled",
+            to_port: nextPort ?? "disabled"
+          });
+          statusServer = await bindStatusServer(
+            statusServer,
+            input.startStatusServerFn ?? startStatusServer,
+            nextPort,
+            orchestrator
+          );
+          boundStatusPort = nextPort;
+        }
       });
     },
     async stop() {
       watcher?.close();
       watcher = null;
+
       if (statusServer) {
         await statusServer.stop();
         statusServer = null;
       }
+
       await orchestrator.stop();
     }
   };
@@ -131,4 +188,28 @@ function extractServerPort(definition: WorkflowDefinition): number | undefined {
   }
 
   return undefined;
+}
+
+async function bindStatusServer(
+  currentServer: StatusServerHandle | null,
+  startStatusServerFn: typeof startStatusServer,
+  port: number | undefined,
+  orchestrator: SymphonyOrchestrator
+): Promise<StatusServerHandle | null> {
+  if (currentServer) {
+    await currentServer.stop();
+  }
+
+  if (typeof port !== "number") {
+    return null;
+  }
+
+  return startStatusServerFn({
+    port,
+    snapshot: () => orchestrator.snapshot(),
+    refresh: async () => {
+      await orchestrator.tick();
+      return orchestrator.snapshot();
+    }
+  });
 }

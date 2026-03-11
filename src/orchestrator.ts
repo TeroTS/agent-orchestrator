@@ -16,6 +16,7 @@ import {
   type EffectiveWorkflowConfig,
   type WorkflowDefinition
 } from "./workflow-loader.js";
+import { createStructuredLogger, type StructuredLogger } from "./structured-logger.js";
 
 export interface WorkflowStoreLike {
   load(): Promise<{ current: WorkflowDefinition }>;
@@ -43,6 +44,7 @@ export interface SymphonyOrchestratorOptions {
   tracker: TrackerLike;
   runner: RunnerLike;
   removeWorkspace: (workspacePath: string) => Promise<void>;
+  logger?: StructuredLogger;
 }
 
 export class SymphonyOrchestrator {
@@ -50,6 +52,7 @@ export class SymphonyOrchestrator {
   private readonly tracker: TrackerLike;
   private readonly runner: RunnerLike;
   private readonly removeWorkspaceFn: (workspacePath: string) => Promise<void>;
+  private readonly logger: StructuredLogger;
 
   private config: EffectiveWorkflowConfig | null = null;
   private running = new Map<string, RunningEntry & { cancel: () => void; retryAttempt: number | null }>();
@@ -64,11 +67,15 @@ export class SymphonyOrchestrator {
     this.tracker = options.tracker;
     this.runner = options.runner;
     this.removeWorkspaceFn = options.removeWorkspace;
+    this.logger = options.logger ?? createStructuredLogger();
   }
 
   async start(): Promise<void> {
     const loaded = await this.workflowStore.load();
     this.config = this.requireValidConfig(loaded.current);
+    this.logger.info("startup completed", {
+      outcome: "completed"
+    });
     await this.startupTerminalWorkspaceCleanup();
     this.scheduleTick(0);
   }
@@ -112,6 +119,10 @@ export class SymphonyOrchestrator {
     });
 
     for (const issue of selected) {
+      this.logger.info("dispatch scheduled", {
+        issue_id: issue.id,
+        issue_identifier: issue.identifier
+      });
       await this.dispatchNow(issue, null);
     }
 
@@ -128,8 +139,7 @@ export class SymphonyOrchestrator {
       issue,
       startedAt: new Date(),
       cancel: handle.cancel,
-      retryAttempt: attempt,
-      sessionId: undefined
+      retryAttempt: attempt
     });
 
     handle.promise
@@ -196,6 +206,11 @@ export class SymphonyOrchestrator {
       }
 
       running.cancel();
+      this.logger.info("run reconciled", {
+        issue_id: refreshedIssue.id,
+        issue_identifier: refreshedIssue.identifier,
+        outcome: action
+      });
       this.running.delete(refreshedIssue.id);
       if (action === "stop_and_cleanup") {
         await this.removeWorkspaceFn(workspacePathFor(config.workspace.root, refreshedIssue.identifier));
@@ -216,11 +231,22 @@ export class SymphonyOrchestrator {
     this.running.delete(issue.id);
 
     if (result.reason === "normal") {
+      this.logger.info("worker completed", {
+        issue_id: issue.id,
+        issue_identifier: issue.identifier,
+        outcome: "completed"
+      });
       this.completed.add(issue.id);
       this.scheduleRetry(issue, 1, null, true);
       return;
     }
 
+    this.logger.warn("worker failed", {
+      issue_id: issue.id,
+      issue_identifier: issue.identifier,
+      outcome: "retrying",
+      reason: result.error
+    });
     const nextAttempt = (running.retryAttempt ?? 0) + 1;
     this.scheduleRetry(issue, nextAttempt, result.error, false);
   }
@@ -303,6 +329,10 @@ export class SymphonyOrchestrator {
   private requireValidConfig(definition: WorkflowDefinition): EffectiveWorkflowConfig {
     const validation = validateWorkflowForDispatch(definition);
     if (!validation.ok) {
+      this.logger.error("validation failed", {
+        outcome: "failed",
+        reason: validation.errors.join(", ")
+      });
       throw new Error(validation.errors.join(", "));
     }
     return validation.config;

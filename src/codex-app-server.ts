@@ -23,6 +23,11 @@ export interface CodexAppServerClientOptions {
     name: string;
     version: string;
   };
+  linearGraphql?: {
+    endpoint: string;
+    apiKey: string;
+    fetchFn?: typeof fetch;
+  };
   onEvent?: (event: CodexRuntimeEvent) => void;
 }
 
@@ -119,7 +124,15 @@ export class CodexAppServerClient {
       const threadResult = await this.request("thread/start", {
         approvalPolicy: this.options.approvalPolicy,
         sandbox: this.options.threadSandbox,
-        cwd: workspacePath
+        cwd: workspacePath,
+        tools: this.options.linearGraphql
+          ? [
+              {
+                name: "linear_graphql",
+                description: "Execute a single GraphQL operation against Linear."
+              }
+            ]
+          : undefined
       });
 
       const threadId = readNestedString(threadResult, ["thread", "id"]);
@@ -283,6 +296,11 @@ export class CodexAppServerClient {
     }
 
     if (method === "item/tool/call" && message.id != null) {
+      if (message.params?.name === "linear_graphql" && this.options.linearGraphql) {
+        void this.handleLinearGraphqlToolCall(message);
+        return;
+      }
+
       this.send({
         id: message.id,
         result: {
@@ -412,6 +430,23 @@ export class CodexAppServerClient {
       ...event
     });
   }
+
+  private async handleLinearGraphqlToolCall(message: any): Promise<void> {
+    const toolConfig = this.options.linearGraphql;
+    if (!toolConfig) {
+      return;
+    }
+
+    const result = await executeLinearGraphqlToolCall(message.params?.arguments, toolConfig);
+    this.send({
+      id: message.id,
+      result
+    });
+    this.emit({
+      event: "linear_graphql_executed",
+      payload: result
+    });
+  }
 }
 
 function readNestedString(value: unknown, path: string[]): string | null {
@@ -442,4 +477,88 @@ function extractUsage(value: any): Record<string, number> | undefined {
     }
   }
   return Object.keys(result).length > 0 ? result : undefined;
+}
+
+async function executeLinearGraphqlToolCall(
+  input: unknown,
+  config: NonNullable<CodexAppServerClientOptions["linearGraphql"]>
+): Promise<Record<string, unknown>> {
+  const parsed = parseLinearGraphqlArguments(input);
+  if (!parsed.ok) {
+    return {
+      success: false,
+      error: parsed.error
+    };
+  }
+
+  const fetchFn = config.fetchFn ?? fetch;
+
+  try {
+    const response = await fetchFn(config.endpoint, {
+      method: "POST",
+      headers: {
+        Authorization: config.apiKey,
+        "content-type": "application/json"
+      },
+      body: JSON.stringify({
+        query: parsed.query,
+        variables: parsed.variables
+      })
+    });
+    const body = await response.json();
+
+    if (Array.isArray(body?.errors) && body.errors.length > 0) {
+      return {
+        success: false,
+        body
+      };
+    }
+
+    return {
+      success: true,
+      body
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : String(error)
+    };
+  }
+}
+
+function parseLinearGraphqlArguments(
+  input: unknown
+): { ok: true; query: string; variables: Record<string, unknown> } | { ok: false; error: string } {
+  if (typeof input === "string") {
+    const query = input.trim();
+    return query ? { ok: true, query, variables: {} } : { ok: false, error: "invalid_input" };
+  }
+
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    return { ok: false, error: "invalid_input" };
+  }
+
+  const query = typeof (input as { query?: unknown }).query === "string"
+    ? (input as { query: string }).query.trim()
+    : "";
+  const variables = (input as { variables?: unknown }).variables;
+
+  if (!query) {
+    return { ok: false, error: "invalid_input" };
+  }
+
+  if (variables != null && (typeof variables !== "object" || Array.isArray(variables))) {
+    return { ok: false, error: "invalid_input" };
+  }
+
+  const operationMatches = query.match(/\b(query|mutation|subscription)\b/g);
+  if ((operationMatches?.length ?? 0) > 1) {
+    return { ok: false, error: "multiple_operations_not_supported" };
+  }
+
+  return {
+    ok: true,
+    query,
+    variables: (variables as Record<string, unknown> | undefined) ?? {}
+  };
 }

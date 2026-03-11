@@ -1,7 +1,7 @@
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   CodexAppServerClient,
@@ -44,6 +44,10 @@ rl.on("line", (line) => {
   }
 
   if (msg.method === "thread/start") {
+    if (scenario === "linear-graphql" && (!msg.params.tools || msg.params.tools[0]?.name !== "linear_graphql")) {
+      send({ method: "turn/failed", params: { reason: "tool_not_advertised" } });
+      return;
+    }
     send({ id: msg.id, result: { thread: { id: "thread-1" } } });
     return;
   }
@@ -77,6 +81,21 @@ rl.on("line", (line) => {
     }
 
     if (scenario === "hang") {
+      return;
+    }
+
+    if (scenario === "linear-graphql") {
+      send({
+        id: "tool-graphql-1",
+        method: "item/tool/call",
+        params: {
+          name: "linear_graphql",
+          arguments: {
+            query: "query Viewer { viewer { id } }"
+          }
+        }
+      });
+      setTimeout(() => send({ method: "turn/completed", params: {} }), 5);
       return;
     }
   }
@@ -221,5 +240,42 @@ describe("CodexAppServerClient", () => {
       code: "turn_timeout"
     });
     await client.stop();
+  });
+
+  it("advertises and executes the linear_graphql dynamic tool", async () => {
+    const { dir, scriptPath } = await createScenarioDir("codex-linear-tool", "linear-graphql");
+    const events: CodexRuntimeEvent[] = [];
+    const fetchFn = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ data: { viewer: { id: "viewer-1" } } }), {
+        status: 200,
+        headers: { "content-type": "application/json" }
+      })
+    );
+    const client = new CodexAppServerClient({
+      command: `${process.execPath} ${scriptPath}`,
+      workspacePath: dir,
+      approvalPolicy: "never",
+      threadSandbox: "workspace-write",
+      turnSandboxPolicy: { type: "workspaceWrite" },
+      readTimeoutMs: 500,
+      turnTimeoutMs: 1000,
+      onEvent: (event) => events.push(event),
+      linearGraphql: {
+        endpoint: "https://api.linear.app/graphql",
+        apiKey: "linear-token",
+        fetchFn
+      }
+    });
+
+    await client.start();
+    await client.runTurn({
+      prompt: "Hello",
+      title: "ABC-6: Example"
+    });
+    await client.stop();
+
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+    expect(fetchFn.mock.calls[0]?.[0]).toBe("https://api.linear.app/graphql");
+    expect(events.map((event) => event.event)).toContain("linear_graphql_executed");
   });
 });
