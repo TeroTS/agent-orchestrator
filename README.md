@@ -135,6 +135,24 @@ Unsupported methods on known routes return `405 Method Not Allowed`.
 
 ## Testing
 
+Run lint:
+
+```bash
+npm run lint
+```
+
+Run formatting checks:
+
+```bash
+npm run format:check
+```
+
+Apply formatting:
+
+```bash
+npm run format
+```
+
 Run the full test suite:
 
 ```bash

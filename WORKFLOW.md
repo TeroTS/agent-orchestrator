@@ -40,7 +40,7 @@ Continuation context:
 - This is retry attempt #{{ attempt }} because the ticket is still in an active state.
 - Resume from the current workspace state instead of starting over.
 - Avoid repeating completed investigation or validation unless new changes require it.
-{% endif %}
+  {% endif %}
 
 Issue context:
 Identifier: {{ issue.identifier }}

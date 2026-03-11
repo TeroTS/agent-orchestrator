@@ -33,9 +33,14 @@ export type DispatchEligibilityResult =
   | { ok: true }
   | { ok: false; reason: string };
 
-export type ReconciliationAction = "update" | "stop_and_cleanup" | "stop_without_cleanup";
+export type ReconciliationAction =
+  | "update"
+  | "stop_and_cleanup"
+  | "stop_without_cleanup";
 
-export function sortDispatchCandidates(issues: OrchestrationIssue[]): OrchestrationIssue[] {
+export function sortDispatchCandidates(
+  issues: OrchestrationIssue[],
+): OrchestrationIssue[] {
   return [...issues].sort((left, right) => {
     const leftPriority = left.priority ?? Number.MAX_SAFE_INTEGER;
     const rightPriority = right.priority ?? Number.MAX_SAFE_INTEGER;
@@ -44,7 +49,8 @@ export function sortDispatchCandidates(issues: OrchestrationIssue[]): Orchestrat
     }
 
     const leftCreatedAt = left.createdAt?.getTime() ?? Number.MAX_SAFE_INTEGER;
-    const rightCreatedAt = right.createdAt?.getTime() ?? Number.MAX_SAFE_INTEGER;
+    const rightCreatedAt =
+      right.createdAt?.getTime() ?? Number.MAX_SAFE_INTEGER;
     if (leftCreatedAt !== rightCreatedAt) {
       return leftCreatedAt - rightCreatedAt;
     }
@@ -54,7 +60,7 @@ export function sortDispatchCandidates(issues: OrchestrationIssue[]): Orchestrat
 }
 
 export function isIssueDispatchEligible(
-  input: DispatchEligibilityInput
+  input: DispatchEligibilityInput,
 ): DispatchEligibilityResult {
   const issue = input.issue;
   if (!issue.id || !issue.identifier || !issue.title || !issue.state) {
@@ -62,10 +68,17 @@ export function isIssueDispatchEligible(
   }
 
   const normalizedState = issue.state.toLowerCase();
-  const activeStates = new Set(input.activeStates.map((state) => state.toLowerCase()));
-  const terminalStates = new Set(input.terminalStates.map((state) => state.toLowerCase()));
+  const activeStates = new Set(
+    input.activeStates.map((state) => state.toLowerCase()),
+  );
+  const terminalStates = new Set(
+    input.terminalStates.map((state) => state.toLowerCase()),
+  );
 
-  if (!activeStates.has(normalizedState) || terminalStates.has(normalizedState)) {
+  if (
+    !activeStates.has(normalizedState) ||
+    terminalStates.has(normalizedState)
+  ) {
     return { ok: false, reason: "issue_not_active" };
   }
 
@@ -77,15 +90,28 @@ export function isIssueDispatchEligible(
     return { ok: false, reason: "already_claimed" };
   }
 
-  if (availableGlobalSlots(input.runningIssues.size, input.maxConcurrentAgents) <= 0) {
+  if (
+    availableGlobalSlots(input.runningIssues.size, input.maxConcurrentAgents) <=
+    0
+  ) {
     return { ok: false, reason: "no_global_slots" };
   }
 
-  if (availableStateSlots(issue.state, input.runningIssues, input.maxConcurrentAgents, input.maxConcurrentAgentsByState) <= 0) {
+  if (
+    availableStateSlots(
+      issue.state,
+      input.runningIssues,
+      input.maxConcurrentAgents,
+      input.maxConcurrentAgentsByState,
+    ) <= 0
+  ) {
     return { ok: false, reason: "no_state_slots" };
   }
 
-  if (normalizedState === "todo" && hasNonTerminalBlocker(issue, terminalStates)) {
+  if (
+    normalizedState === "todo" &&
+    hasNonTerminalBlocker(issue, terminalStates)
+  ) {
     return { ok: false, reason: "todo_blocked_by_non_terminal_issue" };
   }
 
@@ -111,12 +137,16 @@ export function computeReconciliationAction(input: {
   terminalStates: string[];
 }): ReconciliationAction {
   const normalizedState = input.nextState.toLowerCase();
-  const terminalStates = new Set(input.terminalStates.map((state) => state.toLowerCase()));
+  const terminalStates = new Set(
+    input.terminalStates.map((state) => state.toLowerCase()),
+  );
   if (terminalStates.has(normalizedState)) {
     return "stop_and_cleanup";
   }
 
-  const activeStates = new Set(input.activeStates.map((state) => state.toLowerCase()));
+  const activeStates = new Set(
+    input.activeStates.map((state) => state.toLowerCase()),
+  );
   if (activeStates.has(normalizedState)) {
     return "update";
   }
@@ -124,7 +154,10 @@ export function computeReconciliationAction(input: {
   return "stop_without_cleanup";
 }
 
-function availableGlobalSlots(runningCount: number, maxConcurrentAgents: number): number {
+function availableGlobalSlots(
+  runningCount: number,
+  maxConcurrentAgents: number,
+): number {
   return Math.max(maxConcurrentAgents - runningCount, 0);
 }
 
@@ -132,10 +165,11 @@ function availableStateSlots(
   state: string,
   runningIssues: Map<string, OrchestrationIssue>,
   maxConcurrentAgents: number,
-  maxConcurrentAgentsByState: Record<string, number>
+  maxConcurrentAgentsByState: Record<string, number>,
 ): number {
   const normalizedState = state.toLowerCase();
-  const stateLimit = maxConcurrentAgentsByState[normalizedState] ?? maxConcurrentAgents;
+  const stateLimit =
+    maxConcurrentAgentsByState[normalizedState] ?? maxConcurrentAgents;
   let stateCount = 0;
 
   for (const runningIssue of runningIssues.values()) {
@@ -149,7 +183,7 @@ function availableStateSlots(
 
 function hasNonTerminalBlocker(
   issue: OrchestrationIssue,
-  terminalStates: Set<string>
+  terminalStates: Set<string>,
 ): boolean {
   return issue.blockedBy.some((blocker) => {
     if (!blocker.state) {

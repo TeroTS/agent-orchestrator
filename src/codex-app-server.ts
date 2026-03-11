@@ -1,7 +1,10 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { resolve } from "node:path";
 
-import { createStructuredLogger, type StructuredLogger } from "./structured-logger.js";
+import {
+  createStructuredLogger,
+  type StructuredLogger,
+} from "./structured-logger.js";
 
 export interface CodexRuntimeEvent {
   event: string;
@@ -91,10 +94,10 @@ export class CodexAppServerClient {
     const workspacePath = resolve(this.options.workspacePath);
     const child = spawn("bash", ["-lc", this.options.command], {
       cwd: workspacePath,
-      stdio: ["pipe", "pipe", "pipe"]
+      stdio: ["pipe", "pipe", "pipe"],
     });
     this.logger.info("codex app-server starting", {
-      workspace_path: workspacePath
+      workspace_path: workspacePath,
     });
 
     this.process = child;
@@ -111,26 +114,36 @@ export class CodexAppServerClient {
 
     child.on("error", (error) => {
       this.logger.error("codex app-server start failed", {
-        reason: error.message
+        reason: error.message,
       });
       this.rejectPending(
-        new CodexAppServerError("codex_not_found", "Failed to start codex app-server.", {
-          cause: error
-        })
+        new CodexAppServerError(
+          "codex_not_found",
+          "Failed to start codex app-server.",
+          {
+            cause: error,
+          },
+        ),
       );
     });
 
     child.on("exit", () => {
       this.logger.warn("codex app-server exited", {});
       this.rejectPending(
-        new CodexAppServerError("port_exit", "Codex app-server exited unexpectedly.")
+        new CodexAppServerError(
+          "port_exit",
+          "Codex app-server exited unexpectedly.",
+        ),
       );
     });
 
     try {
       await this.request("initialize", {
-        clientInfo: this.options.clientInfo ?? { name: "symphony-ts", version: "0.1.0" },
-        capabilities: {}
+        clientInfo: this.options.clientInfo ?? {
+          name: "symphony-ts",
+          version: "0.1.0",
+        },
+        capabilities: {},
       });
       this.notify("initialized", {});
       const threadResult = await this.request("thread/start", {
@@ -141,42 +154,55 @@ export class CodexAppServerClient {
           ? [
               {
                 name: "linear_graphql",
-                description: "Execute a single GraphQL operation against Linear."
-              }
+                description:
+                  "Execute a single GraphQL operation against Linear.",
+              },
             ]
-          : undefined
+          : undefined,
       });
 
       const threadId = readNestedString(threadResult, ["thread", "id"]);
       if (!threadId) {
-        throw new CodexAppServerError("response_error", "thread/start did not return thread id.");
+        throw new CodexAppServerError(
+          "response_error",
+          "thread/start did not return thread id.",
+        );
       }
       this.threadId = threadId;
       this.logger.info("codex app-server ready", {
-        thread_id: threadId
+        thread_id: threadId,
       });
     } catch (error) {
       this.emit({
         event: "startup_failed",
-        payload: error
+        payload: error,
       });
       throw error;
     }
   }
 
-  async runTurn(input: { prompt: string; title: string }): Promise<CodexTurnResult> {
+  async runTurn(input: {
+    prompt: string;
+    title: string;
+  }): Promise<CodexTurnResult> {
     if (!this.process || !this.threadId) {
-      throw new CodexAppServerError("response_error", "Codex app-server session has not been started.");
+      throw new CodexAppServerError(
+        "response_error",
+        "Codex app-server session has not been started.",
+      );
     }
 
     if (this.currentTurn) {
-      throw new CodexAppServerError("response_error", "A turn is already in progress.");
+      throw new CodexAppServerError(
+        "response_error",
+        "A turn is already in progress.",
+      );
     }
 
     this.turnStartPending = true;
     this.logger.info("codex turn starting", {
       thread_id: this.threadId,
-      title: input.title
+      title: input.title,
     });
     const turnResult = await this.request("turn/start", {
       threadId: this.threadId,
@@ -184,12 +210,15 @@ export class CodexAppServerClient {
       cwd: resolve(this.options.workspacePath),
       title: input.title,
       approvalPolicy: this.options.approvalPolicy,
-      sandboxPolicy: this.options.turnSandboxPolicy
+      sandboxPolicy: this.options.turnSandboxPolicy,
     });
 
     const turnId = readNestedString(turnResult, ["turn", "id"]);
     if (!turnId) {
-      throw new CodexAppServerError("response_error", "turn/start did not return turn id.");
+      throw new CodexAppServerError(
+        "response_error",
+        "turn/start did not return turn id.",
+      );
     }
 
     const sessionId = `${this.threadId}-${turnId}`;
@@ -200,7 +229,10 @@ export class CodexAppServerClient {
           this.currentTurn = null;
         }
         rejectPromise(
-          new CodexAppServerError("turn_timeout", `Turn timed out after ${this.options.turnTimeoutMs}ms.`)
+          new CodexAppServerError(
+            "turn_timeout",
+            `Turn timed out after ${this.options.turnTimeoutMs}ms.`,
+          ),
         );
       }, this.options.turnTimeoutMs);
 
@@ -210,7 +242,7 @@ export class CodexAppServerClient {
         sessionId,
         resolve: resolvePromise,
         reject: rejectPromise,
-        timer
+        timer,
       };
 
       this.emit({
@@ -218,13 +250,13 @@ export class CodexAppServerClient {
         sessionId,
         payload: {
           threadId: this.threadId,
-          turnId
-        }
+          turnId,
+        },
       });
       this.logger.info("codex turn started", {
         session_id: sessionId,
         thread_id: this.threadId,
-        turn_id: turnId
+        turn_id: turnId,
       });
 
       this.turnStartPending = false;
@@ -246,7 +278,7 @@ export class CodexAppServerClient {
 
     if (!child.killed) {
       this.logger.info("codex app-server stopping", {
-        pid: child.pid
+        pid: child.pid,
       });
       child.kill("SIGTERM");
     }
@@ -272,21 +304,31 @@ export class CodexAppServerClient {
         message = JSON.parse(line);
       } catch {
         this.logger.warn("codex malformed stdout line", {
-          line
+          line,
         });
         this.emit({
           event: "malformed",
-          message: line
+          message: line,
         });
         continue;
       }
 
-      if (message.id != null && this.pendingRequests.has(message.id) && ("result" in message || "error" in message)) {
+      if (
+        message.id != null &&
+        this.pendingRequests.has(message.id) &&
+        ("result" in message || "error" in message)
+      ) {
         const pending = this.pendingRequests.get(message.id)!;
         this.pendingRequests.delete(message.id);
         clearTimeout(pending.timer);
         if ("error" in message) {
-          pending.reject(new CodexAppServerError("response_error", "Codex returned response error.", { cause: message.error }));
+          pending.reject(
+            new CodexAppServerError(
+              "response_error",
+              "Codex returned response error.",
+              { cause: message.error },
+            ),
+          );
         } else {
           pending.resolve(message.result);
         }
@@ -315,19 +357,22 @@ export class CodexAppServerClient {
       this.send({
         id: message.id,
         result: {
-          approved: true
-        }
+          approved: true,
+        },
       });
       this.logger.info("codex approval auto approved", {});
       this.emit({
         event: "approval_auto_approved",
-        payload: message.params
+        payload: message.params,
       });
       return;
     }
 
     if (method === "item/tool/call" && message.id != null) {
-      if (message.params?.name === "linear_graphql" && this.options.linearGraphql) {
+      if (
+        message.params?.name === "linear_graphql" &&
+        this.options.linearGraphql
+      ) {
         void this.handleLinearGraphqlToolCall(message);
         return;
       }
@@ -336,15 +381,18 @@ export class CodexAppServerClient {
         id: message.id,
         result: {
           success: false,
-          error: "unsupported_tool_call"
-        }
+          error: "unsupported_tool_call",
+        },
       });
       this.logger.warn("codex unsupported tool call", {
-        tool_name: typeof message.params?.name === "string" ? message.params.name : "unknown"
+        tool_name:
+          typeof message.params?.name === "string"
+            ? message.params.name
+            : "unknown",
       });
       this.emit({
         event: "unsupported_tool_call",
-        payload: message.params
+        payload: message.params,
       });
       return;
     }
@@ -353,14 +401,17 @@ export class CodexAppServerClient {
       this.logger.error("codex turn requested user input", {});
       this.emit({
         event: "turn_input_required",
-        payload: message.params
+        payload: message.params,
       });
       const currentTurn = this.currentTurn;
       if (currentTurn) {
         clearTimeout(currentTurn.timer);
         this.currentTurn = null;
         currentTurn.reject(
-          new CodexAppServerError("turn_input_required", "Codex requested user input.")
+          new CodexAppServerError(
+            "turn_input_required",
+            "Codex requested user input.",
+          ),
         );
       }
       return;
@@ -378,16 +429,16 @@ export class CodexAppServerClient {
         event: "turn_completed",
         sessionId: currentTurn.sessionId,
         usage: extractUsage(message.params),
-        payload: message.params
+        payload: message.params,
       });
       this.logger.info("codex turn completed", {
-        session_id: currentTurn.sessionId
+        session_id: currentTurn.sessionId,
       });
       currentTurn.resolve({
         outcome: "completed",
         threadId: currentTurn.threadId,
         turnId: currentTurn.turnId,
-        sessionId: currentTurn.sessionId
+        sessionId: currentTurn.sessionId,
       });
       return;
     }
@@ -403,12 +454,12 @@ export class CodexAppServerClient {
       const code = method === "turn/failed" ? "turn_failed" : "turn_cancelled";
       this.logger.warn("codex turn ended without completion", {
         code,
-        session_id: currentTurn.sessionId
+        session_id: currentTurn.sessionId,
       });
       this.emit({
         event: code,
         sessionId: currentTurn.sessionId,
-        payload: message.params
+        payload: message.params,
       });
       currentTurn.reject(new CodexAppServerError(code, `Codex ${method}.`));
       return;
@@ -416,11 +467,14 @@ export class CodexAppServerClient {
 
     this.emit({
       event: method === "notification" ? "notification" : "other_message",
-      payload: message.params ?? message
+      payload: message.params ?? message,
     });
   }
 
-  private request(method: string, params: Record<string, unknown>): Promise<unknown> {
+  private request(
+    method: string,
+    params: Record<string, unknown>,
+  ): Promise<unknown> {
     const id = this.nextRequestId++;
     this.send({ id, method, params });
 
@@ -428,14 +482,17 @@ export class CodexAppServerClient {
       const timer = setTimeout(() => {
         this.pendingRequests.delete(id);
         rejectPromise(
-          new CodexAppServerError("response_timeout", `${method} timed out after ${this.options.readTimeoutMs}ms.`)
+          new CodexAppServerError(
+            "response_timeout",
+            `${method} timed out after ${this.options.readTimeoutMs}ms.`,
+          ),
         );
       }, this.options.readTimeoutMs);
 
       this.pendingRequests.set(id, {
         resolve: resolvePromise,
         reject: rejectPromise,
-        timer
+        timer,
       });
     });
   }
@@ -446,7 +503,10 @@ export class CodexAppServerClient {
 
   private send(message: Record<string, unknown>): void {
     if (!this.process) {
-      throw new CodexAppServerError("port_exit", "Codex app-server process is not running.");
+      throw new CodexAppServerError(
+        "port_exit",
+        "Codex app-server process is not running.",
+      );
     }
     this.process.stdin.write(`${JSON.stringify(message)}\n`);
   }
@@ -465,11 +525,13 @@ export class CodexAppServerClient {
     }
   }
 
-  private emit(event: Omit<CodexRuntimeEvent, "timestamp" | "codexAppServerPid">): void {
+  private emit(
+    event: Omit<CodexRuntimeEvent, "timestamp" | "codexAppServerPid">,
+  ): void {
     this.options.onEvent?.({
       timestamp: new Date().toISOString(),
       codexAppServerPid: this.process?.pid,
-      ...event
+      ...event,
     });
   }
 
@@ -479,10 +541,13 @@ export class CodexAppServerClient {
       return;
     }
 
-    const result = await executeLinearGraphqlToolCall(message.params?.arguments, toolConfig);
+    const result = await executeLinearGraphqlToolCall(
+      message.params?.arguments,
+      toolConfig,
+    );
     this.send({
       id: message.id,
-      result
+      result,
     });
     if (result.success === true) {
       this.logger.info("linear graphql tool executed", {});
@@ -494,12 +559,15 @@ export class CodexAppServerClient {
           "code" in result.error &&
           typeof result.error.code === "string"
             ? result.error.code
-            : "unknown"
+            : "unknown",
       });
     }
     this.emit({
-      event: result.success === true ? "linear_graphql_executed" : "linear_graphql_failed",
-      payload: result
+      event:
+        result.success === true
+          ? "linear_graphql_executed"
+          : "linear_graphql_failed",
+      payload: result,
     });
   }
 }
@@ -536,7 +604,7 @@ function extractUsage(value: any): Record<string, number> | undefined {
 
 async function executeLinearGraphqlToolCall(
   input: unknown,
-  config: NonNullable<CodexAppServerClientOptions["linearGraphql"]>
+  config: NonNullable<CodexAppServerClientOptions["linearGraphql"]>,
 ): Promise<Record<string, unknown>> {
   const parsed = parseLinearGraphqlArguments(input);
   if (!parsed.ok) {
@@ -546,7 +614,7 @@ async function executeLinearGraphqlToolCall(
   if (!config.endpoint.trim() || !config.apiKey.trim()) {
     return errorResult(
       "linear_graphql_missing_auth",
-      "Linear GraphQL tool is not configured with endpoint and auth."
+      "Linear GraphQL tool is not configured with endpoint and auth.",
     );
   }
 
@@ -557,20 +625,24 @@ async function executeLinearGraphqlToolCall(
       method: "POST",
       headers: {
         Authorization: config.apiKey,
-        "content-type": "application/json"
+        "content-type": "application/json",
       },
       body: JSON.stringify({
         query: parsed.query,
-        variables: parsed.variables
-      })
+        variables: parsed.variables,
+      }),
     });
     const responseText = await response.text();
 
     if (!response.ok) {
-      return errorResult("linear_api_status", `Linear responded with HTTP ${response.status}.`, {
-        status: response.status,
-        body: responseText || null
-      });
+      return errorResult(
+        "linear_api_status",
+        `Linear responded with HTTP ${response.status}.`,
+        {
+          status: response.status,
+          body: responseText || null,
+        },
+      );
     }
 
     let body: unknown;
@@ -579,14 +651,14 @@ async function executeLinearGraphqlToolCall(
     } catch {
       return errorResult(
         "linear_graphql_invalid_json_response",
-        "Linear returned a non-JSON response body."
+        "Linear returned a non-JSON response body.",
       );
     }
 
     if (!isPlainObject(body)) {
       return errorResult(
         "linear_graphql_invalid_response",
-        "Linear returned a malformed GraphQL response."
+        "Linear returned a malformed GraphQL response.",
       );
     }
 
@@ -595,27 +667,25 @@ async function executeLinearGraphqlToolCall(
         success: false,
         error: {
           code: "linear_graphql_errors",
-          message: "Linear returned GraphQL errors."
+          message: "Linear returned GraphQL errors.",
         },
-        body
+        body,
       };
     }
 
     return {
       success: true,
-      body
+      body,
     };
   } catch (error) {
     return errorResult(
       "linear_api_request",
-      error instanceof Error ? error.message : String(error)
+      error instanceof Error ? error.message : String(error),
     );
   }
 }
 
-function parseLinearGraphqlArguments(
-  input: unknown
-):
+function parseLinearGraphqlArguments(input: unknown):
   | { ok: true; query: string; variables: Record<string, unknown> }
   | {
       ok: false;
@@ -632,8 +702,8 @@ function parseLinearGraphqlArguments(
           ok: false,
           error: {
             code: "linear_graphql_invalid_input",
-            message: "query must be a non-empty string."
-          }
+            message: "query must be a non-empty string.",
+          },
         };
   }
 
@@ -642,25 +712,29 @@ function parseLinearGraphqlArguments(
       ok: false,
       error: {
         code: "linear_graphql_invalid_input",
-        message: "tool input must be a query string or an object with query and variables."
-      }
+        message:
+          "tool input must be a query string or an object with query and variables.",
+      },
     };
   }
 
-  const extraKeys = Object.keys(input).filter((key) => key !== "query" && key !== "variables");
+  const extraKeys = Object.keys(input).filter(
+    (key) => key !== "query" && key !== "variables",
+  );
   if (extraKeys.length > 0) {
     return {
       ok: false,
       error: {
         code: "linear_graphql_invalid_input",
-        message: `unexpected fields: ${extraKeys.join(", ")}`
-      }
+        message: `unexpected fields: ${extraKeys.join(", ")}`,
+      },
     };
   }
 
-  const query = typeof (input as { query?: unknown }).query === "string"
-    ? (input as { query: string }).query.trim()
-    : "";
+  const query =
+    typeof (input as { query?: unknown }).query === "string"
+      ? (input as { query: string }).query.trim()
+      : "";
   const variables = (input as { variables?: unknown }).variables;
 
   if (!query) {
@@ -668,8 +742,8 @@ function parseLinearGraphqlArguments(
       ok: false,
       error: {
         code: "linear_graphql_invalid_input",
-        message: "query must be a non-empty string."
-      }
+        message: "query must be a non-empty string.",
+      },
     };
   }
 
@@ -678,8 +752,8 @@ function parseLinearGraphqlArguments(
       ok: false,
       error: {
         code: "linear_graphql_invalid_input",
-        message: "variables must be a JSON object when provided."
-      }
+        message: "variables must be a JSON object when provided.",
+      },
     };
   }
 
@@ -689,30 +763,30 @@ function parseLinearGraphqlArguments(
       ok: false,
       error: {
         code: "linear_graphql_multiple_operations",
-        message: "query must contain exactly one GraphQL operation."
-      }
+        message: "query must contain exactly one GraphQL operation.",
+      },
     };
   }
 
   return {
     ok: true,
     query,
-    variables: (variables as Record<string, unknown> | undefined) ?? {}
+    variables: (variables as Record<string, unknown> | undefined) ?? {},
   };
 }
 
 function errorResult(
   code: string,
   message: string,
-  extra: Record<string, unknown> = {}
+  extra: Record<string, unknown> = {},
 ): Record<string, unknown> {
   return {
     success: false,
     error: {
       code,
       message,
-      ...extra
-    }
+      ...extra,
+    },
   };
 }
 

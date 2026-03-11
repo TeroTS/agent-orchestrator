@@ -1,21 +1,26 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   CodexAppServerClient,
-  type CodexRuntimeEvent
+  type CodexRuntimeEvent,
 } from "../src/codex-app-server.js";
 
 const tempDirs: string[] = [];
 
 afterEach(async () => {
-  await Promise.all(tempDirs.map((dir) => rm(dir, { recursive: true, force: true })));
+  await Promise.all(
+    tempDirs.map((dir) => rm(dir, { recursive: true, force: true })),
+  );
   tempDirs.length = 0;
 });
 
-async function createScenarioDir(name: string, scenario: string): Promise<{ dir: string; scriptPath: string }> {
+async function createScenarioDir(
+  name: string,
+  scenario: string,
+): Promise<{ dir: string; scriptPath: string }> {
   const dir = await mkdtemp(join(tmpdir(), `${name}-`));
   tempDirs.push(dir);
   const scriptPath = join(dir, "fake-app-server.mjs");
@@ -138,7 +143,7 @@ rl.on("line", (line) => {
   }
 });
 `,
-    "utf8"
+    "utf8",
   );
 
   return { dir, scriptPath };
@@ -146,7 +151,10 @@ rl.on("line", (line) => {
 
 describe("CodexAppServerClient", () => {
   it("performs the startup handshake, runs a turn, and emits session metadata", async () => {
-    const { dir, scriptPath } = await createScenarioDir("codex-complete", "complete");
+    const { dir, scriptPath } = await createScenarioDir(
+      "codex-complete",
+      "complete",
+    );
     const events: CodexRuntimeEvent[] = [];
     const client = new CodexAppServerClient({
       command: `${process.execPath} ${scriptPath}`,
@@ -156,13 +164,13 @@ describe("CodexAppServerClient", () => {
       turnSandboxPolicy: { type: "workspaceWrite" },
       readTimeoutMs: 500,
       turnTimeoutMs: 1000,
-      onEvent: (event) => events.push(event)
+      onEvent: (event) => events.push(event),
     });
 
     await client.start();
     const result = await client.runTurn({
       prompt: "Hello",
-      title: "ABC-1: Example"
+      title: "ABC-1: Example",
     });
     await client.stop();
 
@@ -170,14 +178,17 @@ describe("CodexAppServerClient", () => {
       outcome: "completed",
       threadId: "thread-1",
       turnId: "turn-1",
-      sessionId: "thread-1-turn-1"
+      sessionId: "thread-1-turn-1",
     });
     expect(events.map((event) => event.event)).toContain("session_started");
     expect(events.map((event) => event.event)).toContain("turn_completed");
   });
 
   it("buffers partial stdout lines until a newline arrives", async () => {
-    const { dir, scriptPath } = await createScenarioDir("codex-partial", "partial");
+    const { dir, scriptPath } = await createScenarioDir(
+      "codex-partial",
+      "partial",
+    );
     const events: CodexRuntimeEvent[] = [];
     const client = new CodexAppServerClient({
       command: `${process.execPath} ${scriptPath}`,
@@ -187,27 +198,30 @@ describe("CodexAppServerClient", () => {
       turnSandboxPolicy: { type: "workspaceWrite" },
       readTimeoutMs: 500,
       turnTimeoutMs: 1000,
-      onEvent: (event) => events.push(event)
+      onEvent: (event) => events.push(event),
     });
 
     await client.start();
     await client.runTurn({
       prompt: "Hello",
-      title: "ABC-2: Example"
+      title: "ABC-2: Example",
     });
     await client.stop();
 
     expect(events).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          event: "notification"
-        })
-      ])
+          event: "notification",
+        }),
+      ]),
     );
   });
 
   it("auto-approves approval requests and rejects unsupported tool calls without stalling", async () => {
-    const { dir, scriptPath } = await createScenarioDir("codex-approval", "approval-tool");
+    const { dir, scriptPath } = await createScenarioDir(
+      "codex-approval",
+      "approval-tool",
+    );
     const events: CodexRuntimeEvent[] = [];
     const client = new CodexAppServerClient({
       command: `${process.execPath} ${scriptPath}`,
@@ -217,22 +231,29 @@ describe("CodexAppServerClient", () => {
       turnSandboxPolicy: { type: "workspaceWrite" },
       readTimeoutMs: 500,
       turnTimeoutMs: 1000,
-      onEvent: (event) => events.push(event)
+      onEvent: (event) => events.push(event),
     });
 
     await client.start();
     await client.runTurn({
       prompt: "Hello",
-      title: "ABC-3: Example"
+      title: "ABC-3: Example",
     });
     await client.stop();
 
-    expect(events.map((event) => event.event)).toContain("approval_auto_approved");
-    expect(events.map((event) => event.event)).toContain("unsupported_tool_call");
+    expect(events.map((event) => event.event)).toContain(
+      "approval_auto_approved",
+    );
+    expect(events.map((event) => event.event)).toContain(
+      "unsupported_tool_call",
+    );
   });
 
   it("fails immediately when the server requests user input", async () => {
-    const { dir, scriptPath } = await createScenarioDir("codex-input", "user-input");
+    const { dir, scriptPath } = await createScenarioDir(
+      "codex-input",
+      "user-input",
+    );
     const client = new CodexAppServerClient({
       command: `${process.execPath} ${scriptPath}`,
       workspacePath: dir,
@@ -240,23 +261,26 @@ describe("CodexAppServerClient", () => {
       threadSandbox: "workspace-write",
       turnSandboxPolicy: { type: "workspaceWrite" },
       readTimeoutMs: 500,
-      turnTimeoutMs: 1000
+      turnTimeoutMs: 1000,
     });
 
     await client.start();
     await expect(
       client.runTurn({
         prompt: "Hello",
-        title: "ABC-4: Example"
-      })
+        title: "ABC-4: Example",
+      }),
     ).rejects.toMatchObject({
-      code: "turn_input_required"
+      code: "turn_input_required",
     });
     await client.stop();
   });
 
   it("fails a turn when the completion timeout is reached", async () => {
-    const { dir, scriptPath } = await createScenarioDir("codex-timeout", "hang");
+    const { dir, scriptPath } = await createScenarioDir(
+      "codex-timeout",
+      "hang",
+    );
     const client = new CodexAppServerClient({
       command: `${process.execPath} ${scriptPath}`,
       workspacePath: dir,
@@ -264,29 +288,32 @@ describe("CodexAppServerClient", () => {
       threadSandbox: "workspace-write",
       turnSandboxPolicy: { type: "workspaceWrite" },
       readTimeoutMs: 500,
-      turnTimeoutMs: 50
+      turnTimeoutMs: 50,
     });
 
     await client.start();
     await expect(
       client.runTurn({
         prompt: "Hello",
-        title: "ABC-5: Example"
-      })
+        title: "ABC-5: Example",
+      }),
     ).rejects.toMatchObject({
-      code: "turn_timeout"
+      code: "turn_timeout",
     });
     await client.stop();
   });
 
   it("advertises and executes the linear_graphql dynamic tool", async () => {
-    const { dir, scriptPath } = await createScenarioDir("codex-linear-tool", "linear-graphql");
+    const { dir, scriptPath } = await createScenarioDir(
+      "codex-linear-tool",
+      "linear-graphql",
+    );
     const events: CodexRuntimeEvent[] = [];
     const fetchFn = vi.fn().mockResolvedValue(
       new Response(JSON.stringify({ data: { viewer: { id: "viewer-1" } } }), {
         status: 200,
-        headers: { "content-type": "application/json" }
-      })
+        headers: { "content-type": "application/json" },
+      }),
     );
     const client = new CodexAppServerClient({
       command: `${process.execPath} ${scriptPath}`,
@@ -300,20 +327,22 @@ describe("CodexAppServerClient", () => {
       linearGraphql: {
         endpoint: "https://api.linear.app/graphql",
         apiKey: "linear-token",
-        fetchFn
-      }
+        fetchFn,
+      },
     });
 
     await client.start();
     await client.runTurn({
       prompt: "Hello",
-      title: "ABC-6: Example"
+      title: "ABC-6: Example",
     });
     await client.stop();
 
     expect(fetchFn).toHaveBeenCalledTimes(1);
     expect(fetchFn.mock.calls[0]?.[0]).toBe("https://api.linear.app/graphql");
-    expect(events.map((event) => event.event)).toContain("linear_graphql_executed");
+    expect(events.map((event) => event.event)).toContain(
+      "linear_graphql_executed",
+    );
     expect(events).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -324,21 +353,21 @@ describe("CodexAppServerClient", () => {
               body: {
                 data: {
                   viewer: {
-                    id: "viewer-1"
-                  }
-                }
-              }
-            }
-          }
-        })
-      ])
+                    id: "viewer-1",
+                  },
+                },
+              },
+            },
+          },
+        }),
+      ]),
     );
   });
 
   it("rejects malformed linear_graphql input before making a request", async () => {
     const { dir, scriptPath } = await createScenarioDir(
       "codex-linear-invalid-input",
-      "linear-graphql-invalid-input"
+      "linear-graphql-invalid-input",
     );
     const events: CodexRuntimeEvent[] = [];
     const fetchFn = vi.fn();
@@ -354,14 +383,14 @@ describe("CodexAppServerClient", () => {
       linearGraphql: {
         endpoint: "https://api.linear.app/graphql",
         apiKey: "linear-token",
-        fetchFn
-      }
+        fetchFn,
+      },
     });
 
     await client.start();
     await client.runTurn({
       prompt: "Hello",
-      title: "ABC-7: Example"
+      title: "ABC-7: Example",
     });
     await client.stop();
 
@@ -374,12 +403,12 @@ describe("CodexAppServerClient", () => {
             toolResult: expect.objectContaining({
               success: false,
               error: expect.objectContaining({
-                code: "linear_graphql_invalid_input"
-              })
-            })
-          })
-        })
-      ])
+                code: "linear_graphql_invalid_input",
+              }),
+            }),
+          }),
+        }),
+      ]),
     );
   });
 
@@ -389,19 +418,23 @@ describe("CodexAppServerClient", () => {
         name: "codex-linear-multi-op",
         scenario: "linear-graphql-multi-operation",
         fetchFn: vi.fn(),
-        expectedCode: "linear_graphql_multiple_operations"
+        expectedCode: "linear_graphql_multiple_operations",
       },
       {
         name: "codex-linear-status-error",
         scenario: "linear-graphql-status-error",
-        fetchFn: vi.fn().mockResolvedValue(new Response("bad gateway", { status: 502 })),
-        expectedCode: "linear_api_status"
+        fetchFn: vi
+          .fn()
+          .mockResolvedValue(new Response("bad gateway", { status: 502 })),
+        expectedCode: "linear_api_status",
       },
       {
         name: "codex-linear-invalid-json",
         scenario: "linear-graphql-invalid-json",
-        fetchFn: vi.fn().mockResolvedValue(new Response("not-json", { status: 200 })),
-        expectedCode: "linear_graphql_invalid_json_response"
+        fetchFn: vi
+          .fn()
+          .mockResolvedValue(new Response("not-json", { status: 200 })),
+        expectedCode: "linear_graphql_invalid_json_response",
       },
       {
         name: "codex-linear-graphql-errors",
@@ -409,15 +442,18 @@ describe("CodexAppServerClient", () => {
         fetchFn: vi.fn().mockResolvedValue(
           new Response(JSON.stringify({ errors: [{ message: "broken" }] }), {
             status: 200,
-            headers: { "content-type": "application/json" }
-          })
+            headers: { "content-type": "application/json" },
+          }),
         ),
-        expectedCode: "linear_graphql_errors"
-      }
+        expectedCode: "linear_graphql_errors",
+      },
     ] as const;
 
     for (const entry of scenarios) {
-      const { dir, scriptPath } = await createScenarioDir(entry.name, entry.scenario);
+      const { dir, scriptPath } = await createScenarioDir(
+        entry.name,
+        entry.scenario,
+      );
       const events: CodexRuntimeEvent[] = [];
       const client = new CodexAppServerClient({
         command: `${process.execPath} ${scriptPath}`,
@@ -431,14 +467,14 @@ describe("CodexAppServerClient", () => {
         linearGraphql: {
           endpoint: "https://api.linear.app/graphql",
           apiKey: "linear-token",
-          fetchFn: entry.fetchFn
-        }
+          fetchFn: entry.fetchFn,
+        },
       });
 
       await client.start();
       await client.runTurn({
         prompt: "Hello",
-        title: "ABC-8: Example"
+        title: "ABC-8: Example",
       });
       await client.stop();
 
@@ -450,12 +486,12 @@ describe("CodexAppServerClient", () => {
               toolResult: expect.objectContaining({
                 success: false,
                 error: expect.objectContaining({
-                  code: entry.expectedCode
-                })
-              })
-            })
-          })
-        ])
+                  code: entry.expectedCode,
+                }),
+              }),
+            }),
+          }),
+        ]),
       );
     }
   });

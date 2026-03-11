@@ -11,22 +11,22 @@ describe("createService", () => {
         tracker: {
           kind: "linear",
           api_key: "token",
-          project_slug: "demo"
+          project_slug: "demo",
         },
         server: {
-          port: 3001
-        }
+          port: 3001,
+        },
       },
-      promptTemplate: "Prompt"
+      promptTemplate: "Prompt",
     };
     const secondDefinition: WorkflowDefinition = {
       ...firstDefinition,
       config: {
         ...firstDefinition.config,
         server: {
-          port: 3002
-        }
-      }
+          port: 3002,
+        },
+      },
     };
 
     let currentDefinition = firstDefinition;
@@ -41,26 +41,31 @@ describe("createService", () => {
     const service = await createService({
       workflowPath: "/tmp/WORKFLOW.md",
       workflowStore: {
-        load: vi.fn().mockImplementation(async () => ({ current: currentDefinition })),
+        load: vi
+          .fn()
+          .mockImplementation(async () => ({ current: currentDefinition })),
         current: vi.fn().mockImplementation(() => currentDefinition),
-        reload: vi.fn().mockImplementation(async () => ({ ok: true, current: currentDefinition }))
+        reload: vi.fn().mockImplementation(async () => ({
+          ok: true,
+          current: currentDefinition,
+        })),
       },
       tracker: {
         fetchCandidateIssues: vi.fn().mockResolvedValue([]),
         fetchIssuesByStates: vi.fn().mockResolvedValue([]),
-        fetchIssueStatesByIds: vi.fn().mockResolvedValue([])
+        fetchIssueStatesByIds: vi.fn().mockResolvedValue([]),
       },
       runner: {
-        startRun: vi.fn()
+        startRun: vi.fn(),
       },
       startStatusServerFn,
       logger: createStructuredLogger({
-        write: () => {}
+        write: () => {},
       }),
       watchFactory: (_path, listener) => {
         watchListener = listener;
         return { close: vi.fn() };
-      }
+      },
     });
 
     await service.start();

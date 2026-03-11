@@ -84,7 +84,13 @@ export class WorkflowError extends Error {
 const DEFAULT_PROMPT = "You are working on an issue from Linear.";
 const DEFAULT_TRACKER_ENDPOINT = "https://api.linear.app/graphql";
 const DEFAULT_ACTIVE_STATES = ["Todo", "In Progress"];
-const DEFAULT_TERMINAL_STATES = ["Closed", "Cancelled", "Canceled", "Duplicate", "Done"];
+const DEFAULT_TERMINAL_STATES = [
+  "Closed",
+  "Cancelled",
+  "Canceled",
+  "Duplicate",
+  "Done",
+];
 const DEFAULT_POLL_INTERVAL_MS = 30000;
 const DEFAULT_HOOK_TIMEOUT_MS = 60000;
 const DEFAULT_MAX_CONCURRENT_AGENTS = 10;
@@ -98,11 +104,11 @@ const DEFAULT_WORKSPACE_ROOT = join(tmpdir(), "symphony_workspaces");
 
 const liquidEngine = new Liquid({
   strictFilters: true,
-  strictVariables: true
+  strictVariables: true,
 });
 
 export async function loadWorkflowDefinition(
-  options: LoadWorkflowDefinitionOptions
+  options: LoadWorkflowDefinitionOptions,
 ): Promise<WorkflowDefinition> {
   let contents: string;
   try {
@@ -111,7 +117,7 @@ export async function loadWorkflowDefinition(
     throw new WorkflowError(
       "missing_workflow_file",
       `Unable to read workflow file at ${options.workflowPath}`,
-      { cause: error }
+      { cause: error },
     );
   }
 
@@ -122,7 +128,8 @@ export async function loadWorkflowDefinitionFromPathOrCwd(options: {
   workflowPath?: string;
   cwd: string;
 }): Promise<WorkflowDefinition> {
-  const workflowPath = options.workflowPath ?? resolve(options.cwd, "WORKFLOW.md");
+  const workflowPath =
+    options.workflowPath ?? resolve(options.cwd, "WORKFLOW.md");
   return loadWorkflowDefinition({ workflowPath });
 }
 
@@ -130,7 +137,7 @@ export function parseWorkflowDefinition(contents: string): WorkflowDefinition {
   if (!contents.startsWith("---")) {
     return {
       config: {},
-      promptTemplate: contents.trim()
+      promptTemplate: contents.trim(),
     };
   }
 
@@ -138,7 +145,7 @@ export function parseWorkflowDefinition(contents: string): WorkflowDefinition {
   if (closingIndex === -1) {
     throw new WorkflowError(
       "workflow_parse_error",
-      "Workflow front matter is missing a closing delimiter."
+      "Workflow front matter is missing a closing delimiter.",
     );
   }
 
@@ -147,9 +154,13 @@ export function parseWorkflowDefinition(contents: string): WorkflowDefinition {
   try {
     parsed = YAML.parse(yamlSource);
   } catch (error) {
-    throw new WorkflowError("workflow_parse_error", "Failed to parse workflow YAML.", {
-      cause: error
-    });
+    throw new WorkflowError(
+      "workflow_parse_error",
+      "Failed to parse workflow YAML.",
+      {
+        cause: error,
+      },
+    );
   }
 
   if (parsed == null) {
@@ -159,7 +170,7 @@ export function parseWorkflowDefinition(contents: string): WorkflowDefinition {
   if (!isPlainObject(parsed)) {
     throw new WorkflowError(
       "workflow_front_matter_not_a_map",
-      "Workflow front matter must decode to an object."
+      "Workflow front matter must decode to an object.",
     );
   }
 
@@ -167,11 +178,13 @@ export function parseWorkflowDefinition(contents: string): WorkflowDefinition {
 
   return {
     config: parsed,
-    promptTemplate: promptBody
+    promptTemplate: promptBody,
   };
 }
 
-export function validateWorkflowForDispatch(definition: WorkflowDefinition): ValidationResult {
+export function validateWorkflowForDispatch(
+  definition: WorkflowDefinition,
+): ValidationResult {
   const config = definition.config;
   const trackerConfig = objectAt(config, "tracker");
   const pollingConfig = objectAt(config, "polling");
@@ -186,36 +199,48 @@ export function validateWorkflowForDispatch(definition: WorkflowDefinition): Val
       endpoint: stringAt(trackerConfig, "endpoint") ?? DEFAULT_TRACKER_ENDPOINT,
       apiKey: resolveTrackerApiKey(trackerConfig),
       projectSlug: stringAt(trackerConfig, "project_slug") ?? "",
-      activeStates: stringListAt(trackerConfig, "active_states") ?? DEFAULT_ACTIVE_STATES,
-      terminalStates: stringListAt(trackerConfig, "terminal_states") ?? DEFAULT_TERMINAL_STATES
+      activeStates:
+        stringListAt(trackerConfig, "active_states") ?? DEFAULT_ACTIVE_STATES,
+      terminalStates:
+        stringListAt(trackerConfig, "terminal_states") ??
+        DEFAULT_TERMINAL_STATES,
     },
     polling: {
-      intervalMs: positiveIntegerLike(stringOrNumberAt(pollingConfig, "interval_ms")) ?? DEFAULT_POLL_INTERVAL_MS
+      intervalMs:
+        positiveIntegerLike(stringOrNumberAt(pollingConfig, "interval_ms")) ??
+        DEFAULT_POLL_INTERVAL_MS,
     },
     workspace: {
-      root: normalizeWorkspaceRoot(stringAt(workspaceConfig, "root"))
+      root: normalizeWorkspaceRoot(stringAt(workspaceConfig, "root")),
     },
     hooks: {
       afterCreate: stringAt(hooksConfig, "after_create"),
       beforeRun: stringAt(hooksConfig, "before_run"),
       afterRun: stringAt(hooksConfig, "after_run"),
       beforeRemove: stringAt(hooksConfig, "before_remove"),
-      timeoutMs: positiveIntegerLike(stringOrNumberAt(hooksConfig, "timeout_ms")) ?? DEFAULT_HOOK_TIMEOUT_MS
+      timeoutMs:
+        positiveIntegerLike(stringOrNumberAt(hooksConfig, "timeout_ms")) ??
+        DEFAULT_HOOK_TIMEOUT_MS,
     },
     agent: {
       maxConcurrentAgents:
-        positiveIntegerLike(stringOrNumberAt(agentConfig, "max_concurrent_agents")) ??
-        DEFAULT_MAX_CONCURRENT_AGENTS,
-      maxTurns: positiveIntegerLike(stringOrNumberAt(agentConfig, "max_turns")) ?? DEFAULT_MAX_TURNS,
+        positiveIntegerLike(
+          stringOrNumberAt(agentConfig, "max_concurrent_agents"),
+        ) ?? DEFAULT_MAX_CONCURRENT_AGENTS,
+      maxTurns:
+        positiveIntegerLike(stringOrNumberAt(agentConfig, "max_turns")) ??
+        DEFAULT_MAX_TURNS,
       maxRetryBackoffMs:
-        positiveIntegerLike(stringOrNumberAt(agentConfig, "max_retry_backoff_ms")) ??
-        DEFAULT_MAX_RETRY_BACKOFF_MS,
+        positiveIntegerLike(
+          stringOrNumberAt(agentConfig, "max_retry_backoff_ms"),
+        ) ?? DEFAULT_MAX_RETRY_BACKOFF_MS,
       maxConcurrentAgentsByState: normalizePerStateLimits(
-        objectAt(agentConfig, "max_concurrent_agents_by_state")
-      )
+        objectAt(agentConfig, "max_concurrent_agents_by_state"),
+      ),
     },
     codex: {
-      command: stringAt(codexConfig, "command")?.trim() || DEFAULT_CODEX_COMMAND,
+      command:
+        stringAt(codexConfig, "command")?.trim() || DEFAULT_CODEX_COMMAND,
       approvalPolicy: codexConfig.approval_policy,
       threadSandbox: codexConfig.thread_sandbox,
       turnSandboxPolicy: codexConfig.turn_sandbox_policy,
@@ -225,8 +250,10 @@ export function validateWorkflowForDispatch(definition: WorkflowDefinition): Val
       readTimeoutMs:
         positiveIntegerLike(stringOrNumberAt(codexConfig, "read_timeout_ms")) ??
         DEFAULT_READ_TIMEOUT_MS,
-      stallTimeoutMs: integerLike(stringOrNumberAt(codexConfig, "stall_timeout_ms")) ?? DEFAULT_STALL_TIMEOUT_MS
-    }
+      stallTimeoutMs:
+        integerLike(stringOrNumberAt(codexConfig, "stall_timeout_ms")) ??
+        DEFAULT_STALL_TIMEOUT_MS,
+    },
   };
 
   const errors: string[] = [];
@@ -249,29 +276,39 @@ export function validateWorkflowForDispatch(definition: WorkflowDefinition): Val
     errors.push("codex.command is required");
   }
 
-  return errors.length > 0 ? { ok: false, errors } : { ok: true, config: effectiveConfig };
+  return errors.length > 0
+    ? { ok: false, errors }
+    : { ok: true, config: effectiveConfig };
 }
 
 export async function renderPromptTemplate(
   definition: WorkflowDefinition,
-  context: Record<string, unknown>
+  context: Record<string, unknown>,
 ): Promise<string> {
   const template = definition.promptTemplate || DEFAULT_PROMPT;
   let parsedTemplate;
   try {
     parsedTemplate = liquidEngine.parse(template);
   } catch (error) {
-    throw new WorkflowError("template_parse_error", "Failed to parse workflow prompt template.", {
-      cause: error
-    });
+    throw new WorkflowError(
+      "template_parse_error",
+      "Failed to parse workflow prompt template.",
+      {
+        cause: error,
+      },
+    );
   }
 
   try {
     return await liquidEngine.render(parsedTemplate, context);
   } catch (error) {
-    throw new WorkflowError("template_render_error", "Failed to render workflow prompt template.", {
-      cause: error
-    });
+    throw new WorkflowError(
+      "template_render_error",
+      "Failed to render workflow prompt template.",
+      {
+        cause: error,
+      },
+    );
   }
 }
 
@@ -293,7 +330,9 @@ function normalizeWorkspaceRoot(value: string | undefined): string {
     return DEFAULT_WORKSPACE_ROOT;
   }
 
-  const resolvedEnv = value.startsWith("$") ? process.env[value.slice(1)]?.trim() || "" : value;
+  const resolvedEnv = value.startsWith("$")
+    ? process.env[value.slice(1)]?.trim() || ""
+    : value;
   if (!resolvedEnv) {
     return DEFAULT_WORKSPACE_ROOT;
   }
@@ -306,11 +345,13 @@ function normalizeWorkspaceRoot(value: string | undefined): string {
     return expandedHome;
   }
 
-  return isAbsolute(expandedHome) ? normalize(expandedHome) : normalize(expandedHome);
+  return isAbsolute(expandedHome)
+    ? normalize(expandedHome)
+    : normalize(expandedHome);
 }
 
 function normalizePerStateLimits(
-  value: Record<string, unknown>
+  value: Record<string, unknown>,
 ): Record<string, number> {
   const result: Record<string, number> = {};
   for (const [key, raw] of Object.entries(value)) {
@@ -331,24 +372,37 @@ function objectAt(value: unknown, key: string): Record<string, unknown> {
   return isPlainObject(nested) ? nested : {};
 }
 
-function stringAt(value: Record<string, unknown>, key: string): string | undefined {
+function stringAt(
+  value: Record<string, unknown>,
+  key: string,
+): string | undefined {
   const nested = value[key];
   return typeof nested === "string" ? nested : undefined;
 }
 
-function stringListAt(value: Record<string, unknown>, key: string): string[] | undefined {
+function stringListAt(
+  value: Record<string, unknown>,
+  key: string,
+): string[] | undefined {
   const nested = value[key];
   if (!Array.isArray(nested)) {
     return undefined;
   }
 
-  const items = nested.filter((item): item is string => typeof item === "string");
+  const items = nested.filter(
+    (item): item is string => typeof item === "string",
+  );
   return items.length === nested.length ? items : undefined;
 }
 
-function stringOrNumberAt(value: Record<string, unknown>, key: string): string | number | undefined {
+function stringOrNumberAt(
+  value: Record<string, unknown>,
+  key: string,
+): string | number | undefined {
   const nested = value[key];
-  return typeof nested === "string" || typeof nested === "number" ? nested : undefined;
+  return typeof nested === "string" || typeof nested === "number"
+    ? nested
+    : undefined;
 }
 
 function positiveIntegerLike(value: unknown): number | undefined {

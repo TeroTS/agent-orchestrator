@@ -49,17 +49,22 @@ export function sanitizeWorkspaceKey(issueIdentifier: string): string {
   return issueIdentifier.replace(/[^A-Za-z0-9._-]/g, "_");
 }
 
-export function workspacePathFor(workspaceRoot: string, issueIdentifier: string): string {
+export function workspacePathFor(
+  workspaceRoot: string,
+  issueIdentifier: string,
+): string {
   return join(workspaceRoot, sanitizeWorkspaceKey(issueIdentifier));
 }
 
 export function validateWorkspacePathWithinRoot(
   workspaceRoot: string,
-  workspacePath: string
+  workspacePath: string,
 ): void {
   const absoluteRoot = resolve(workspaceRoot);
   const absoluteWorkspacePath = resolve(workspacePath);
-  const rootedPrefix = absoluteRoot.endsWith("/") ? absoluteRoot : `${absoluteRoot}/`;
+  const rootedPrefix = absoluteRoot.endsWith("/")
+    ? absoluteRoot
+    : `${absoluteRoot}/`;
 
   if (
     absoluteWorkspacePath !== absoluteRoot &&
@@ -67,12 +72,14 @@ export function validateWorkspacePathWithinRoot(
   ) {
     throw new WorkspaceError(
       "workspace_path_outside_root",
-      `Workspace path ${absoluteWorkspacePath} is outside ${absoluteRoot}`
+      `Workspace path ${absoluteWorkspacePath} is outside ${absoluteRoot}`,
     );
   }
 }
 
-export async function ensureWorkspace(options: EnsureWorkspaceOptions): Promise<WorkspaceInfo> {
+export async function ensureWorkspace(
+  options: EnsureWorkspaceOptions,
+): Promise<WorkspaceInfo> {
   const workspaceKey = sanitizeWorkspaceKey(options.issueIdentifier);
   const path = workspacePathFor(options.workspaceRoot, options.issueIdentifier);
   validateWorkspacePathWithinRoot(options.workspaceRoot, path);
@@ -83,7 +90,7 @@ export async function ensureWorkspace(options: EnsureWorkspaceOptions): Promise<
   if (existing?.isFile()) {
     throw new WorkspaceError(
       "workspace_path_not_directory",
-      `Workspace path ${path} already exists and is not a directory.`
+      `Workspace path ${path} already exists and is not a directory.`,
     );
   }
 
@@ -92,7 +99,12 @@ export async function ensureWorkspace(options: EnsureWorkspaceOptions): Promise<
     await mkdir(path, { recursive: true });
 
     try {
-      await runHook("after_create", options.hooks.afterCreate, path, options.hooks.timeoutMs);
+      await runHook(
+        "after_create",
+        options.hooks.afterCreate,
+        path,
+        options.hooks.timeoutMs,
+      );
     } catch (error) {
       await rm(path, { recursive: true, force: true });
       throw error;
@@ -102,33 +114,53 @@ export async function ensureWorkspace(options: EnsureWorkspaceOptions): Promise<
   return {
     path,
     workspaceKey,
-    createdNow
+    createdNow,
   };
 }
 
 export async function prepareWorkspaceForRun(
-  options: PrepareWorkspaceForRunOptions
+  options: PrepareWorkspaceForRunOptions,
 ): Promise<void> {
   for (const artifact of TEMPORARY_ARTIFACTS) {
-    await rm(join(options.workspacePath, artifact), { recursive: true, force: true });
+    await rm(join(options.workspacePath, artifact), {
+      recursive: true,
+      force: true,
+    });
   }
 
-  await runHook("before_run", options.hooks.beforeRun, options.workspacePath, options.hooks.timeoutMs);
+  await runHook(
+    "before_run",
+    options.hooks.beforeRun,
+    options.workspacePath,
+    options.hooks.timeoutMs,
+  );
 }
 
 export async function finalizeWorkspaceRun(
-  options: PrepareWorkspaceForRunOptions
+  options: PrepareWorkspaceForRunOptions,
 ): Promise<void> {
   try {
-    await runHook("after_run", options.hooks.afterRun, options.workspacePath, options.hooks.timeoutMs);
+    await runHook(
+      "after_run",
+      options.hooks.afterRun,
+      options.workspacePath,
+      options.hooks.timeoutMs,
+    );
   } catch {
     // Intentionally ignored by contract.
   }
 }
 
-export async function removeWorkspace(options: RemoveWorkspaceOptions): Promise<void> {
+export async function removeWorkspace(
+  options: RemoveWorkspaceOptions,
+): Promise<void> {
   try {
-    await runHook("before_remove", options.hooks.beforeRemove, options.workspacePath, options.hooks.timeoutMs);
+    await runHook(
+      "before_remove",
+      options.hooks.beforeRemove,
+      options.workspacePath,
+      options.hooks.timeoutMs,
+    );
   } catch {
     // Intentionally ignored by contract.
   }
@@ -148,7 +180,7 @@ async function runHook(
   hookName: "after_create" | "before_run" | "after_run" | "before_remove",
   script: string | undefined,
   cwd: string,
-  timeoutMs = DEFAULT_HOOK_TIMEOUT_MS
+  timeoutMs = DEFAULT_HOOK_TIMEOUT_MS,
 ): Promise<void> {
   if (!script?.trim()) {
     return;
@@ -157,7 +189,7 @@ async function runHook(
   await new Promise<void>((resolvePromise, rejectPromise) => {
     const child = spawn("sh", ["-lc", script], {
       cwd,
-      stdio: ["ignore", "pipe", "pipe"]
+      stdio: ["ignore", "pipe", "pipe"],
     });
 
     let stdout = "";
@@ -180,9 +212,13 @@ async function runHook(
     child.on("error", (error) => {
       clearTimeout(timer);
       rejectPromise(
-        new WorkspaceError("workspace_hook_failed", `${hookName} hook failed to start.`, {
-          cause: error
-        })
+        new WorkspaceError(
+          "workspace_hook_failed",
+          `${hookName} hook failed to start.`,
+          {
+            cause: error,
+          },
+        ),
       );
     });
 
@@ -193,8 +229,8 @@ async function runHook(
         rejectPromise(
           new WorkspaceError(
             "workspace_hook_timed_out",
-            `${hookName} hook timed out after ${timeoutMs}ms.`
-          )
+            `${hookName} hook timed out after ${timeoutMs}ms.`,
+          ),
         );
         return;
       }
@@ -209,8 +245,8 @@ async function runHook(
           "workspace_hook_failed",
           `${hookName} hook failed with exit code ${code ?? "unknown"}${
             signal ? ` (${signal})` : ""
-          }: ${stderr || stdout}`.trim()
-        )
+          }: ${stderr || stdout}`.trim(),
+        ),
       );
     });
   });

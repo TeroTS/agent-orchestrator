@@ -73,18 +73,22 @@ export class LinearTrackerClient {
     do {
       const payload: GraphQLResponse<LinearCandidateIssuesPayload> =
         await this.request<LinearCandidateIssuesPayload>({
-        query: candidateIssuesQuery,
-        variables: {
-          projectSlug: this.projectSlug,
-          states,
-          first: this.pageSize,
-          after
-        }
-      });
+          query: candidateIssuesQuery,
+          variables: {
+            projectSlug: this.projectSlug,
+            states,
+            first: this.pageSize,
+            after,
+          },
+        });
 
-      const connection: LinearCandidateIssuesPayload["issues"] | undefined = payload.data?.issues;
+      const connection: LinearCandidateIssuesPayload["issues"] | undefined =
+        payload.data?.issues;
       if (!isIssuesConnection(connection)) {
-        throw new TrackerError("linear_unknown_payload", "Linear issues payload was malformed.");
+        throw new TrackerError(
+          "linear_unknown_payload",
+          "Linear issues payload was malformed.",
+        );
       }
 
       issues.push(...connection.nodes.map(normalizeIssue));
@@ -93,7 +97,7 @@ export class LinearTrackerClient {
         if (!connection.pageInfo.endCursor) {
           throw new TrackerError(
             "linear_missing_end_cursor",
-            "Linear returned hasNextPage=true without an endCursor."
+            "Linear returned hasNextPage=true without an endCursor.",
           );
         }
         after = connection.pageInfo.endCursor;
@@ -112,21 +116,28 @@ export class LinearTrackerClient {
 
     const payload: GraphQLResponse<LinearIssueStatePayload> =
       await this.request<LinearIssueStatePayload>({
-      query: issueStatesByIdsQuery,
-      variables: {
-        issueIds
-      }
-    });
+        query: issueStatesByIdsQuery,
+        variables: {
+          issueIds,
+        },
+      });
 
-    const connection: LinearIssueStatePayload["issues"] | undefined = payload.data?.issues;
+    const connection: LinearIssueStatePayload["issues"] | undefined =
+      payload.data?.issues;
     if (!connection || !Array.isArray(connection.nodes)) {
-      throw new TrackerError("linear_unknown_payload", "Linear issue state payload was malformed.");
+      throw new TrackerError(
+        "linear_unknown_payload",
+        "Linear issue state payload was malformed.",
+      );
     }
 
     return connection.nodes.map(normalizeIssue);
   }
 
-  private async request<T>(body: { query: string; variables: Record<string, unknown> }): Promise<GraphQLResponse<T>> {
+  private async request<T>(body: {
+    query: string;
+    variables: Record<string, unknown>;
+  }): Promise<GraphQLResponse<T>> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.timeoutMs);
 
@@ -135,23 +146,26 @@ export class LinearTrackerClient {
         method: "POST",
         headers: {
           Authorization: this.apiKey,
-          "content-type": "application/json"
+          "content-type": "application/json",
         },
         body: JSON.stringify(body),
-        signal: controller.signal
+        signal: controller.signal,
       });
 
       if (!response.ok) {
         throw new TrackerError(
           "linear_api_status",
-          `Linear responded with HTTP ${response.status}.`
+          `Linear responded with HTTP ${response.status}.`,
         );
       }
 
       const payload = (await response.json()) as GraphQLResponse<T>;
 
       if (Array.isArray(payload.errors) && payload.errors.length > 0) {
-        throw new TrackerError("linear_graphql_errors", "Linear returned GraphQL errors.");
+        throw new TrackerError(
+          "linear_graphql_errors",
+          "Linear returned GraphQL errors.",
+        );
       }
 
       return payload;
@@ -160,7 +174,9 @@ export class LinearTrackerClient {
         throw error;
       }
 
-      throw new TrackerError("linear_api_request", "Linear request failed.", { cause: error });
+      throw new TrackerError("linear_api_request", "Linear request failed.", {
+        cause: error,
+      });
     } finally {
       clearTimeout(timer);
     }
@@ -224,7 +240,9 @@ function normalizeIssue(node: LinearIssueNode): LinearIssue {
     identifier: node.identifier,
     title: node.title ?? "",
     description: node.description ?? null,
-    priority: Number.isInteger(node.priority) ? (node.priority as number) : null,
+    priority: Number.isInteger(node.priority)
+      ? (node.priority as number)
+      : null,
     state: node.state?.name ?? "",
     branchName: node.branchName ?? null,
     url: node.url ?? null,
@@ -237,10 +255,10 @@ function normalizeIssue(node: LinearIssueNode): LinearIssue {
       .map((relation) => ({
         id: relation.issue?.id ?? null,
         identifier: relation.issue?.identifier ?? null,
-        state: relation.issue?.state?.name ?? null
+        state: relation.issue?.state?.name ?? null,
       })),
     createdAt: parseDate(node.createdAt),
-    updatedAt: parseDate(node.updatedAt)
+    updatedAt: parseDate(node.updatedAt),
   };
 }
 
@@ -253,12 +271,18 @@ function parseDate(value: string | null | undefined): Date | null {
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
-function isIssuesConnection(value: unknown): value is LinearCandidateIssuesPayload["issues"] {
+function isIssuesConnection(
+  value: unknown,
+): value is LinearCandidateIssuesPayload["issues"] {
   if (!isRecord(value)) {
     return false;
   }
 
-  return Array.isArray(value.nodes) && isRecord(value.pageInfo) && typeof value.pageInfo.hasNextPage === "boolean";
+  return (
+    Array.isArray(value.nodes) &&
+    isRecord(value.pageInfo) &&
+    typeof value.pageInfo.hasNextPage === "boolean"
+  );
 }
 
 function isRecord(value: unknown): value is Record<string, any> {

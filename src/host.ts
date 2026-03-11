@@ -9,7 +9,7 @@ export async function runHost(
   argv: string[],
   options: RunCliOptions & {
     signals?: HostSignalSource;
-  }
+  },
 ): Promise<number> {
   const started = await startCli(argv, options);
   if (started.exitCode !== 0 || !started.service) {
@@ -17,7 +17,9 @@ export async function runHost(
   }
 
   const signals = options.signals ?? process;
-  const stderr = options.stderr ?? ((message: string) => process.stderr.write(`${message}\n`));
+  const stderr =
+    options.stderr ??
+    ((message: string) => process.stderr.write(`${message}\n`));
 
   return new Promise<number>((resolve) => {
     let stopping = false;

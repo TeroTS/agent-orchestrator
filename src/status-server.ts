@@ -1,6 +1,14 @@
-import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
+import {
+  createServer,
+  type IncomingMessage,
+  type Server,
+  type ServerResponse,
+} from "node:http";
 
-import { createStructuredLogger, type StructuredLogger } from "./structured-logger.js";
+import {
+  createStructuredLogger,
+  type StructuredLogger,
+} from "./structured-logger.js";
 
 export interface StatusServerHandle {
   baseUrl: string;
@@ -54,8 +62,8 @@ export async function startStatusServer(options: {
         writeJson(response, 405, {
           error: {
             code: "method_not_allowed",
-            message: `Method ${method} is not allowed for ${path}.`
-          }
+            message: `Method ${method} is not allowed for ${path}.`,
+          },
         });
         return;
       }
@@ -71,31 +79,54 @@ export async function startStatusServer(options: {
       }
 
       if (path === "/api/v1/state") {
-        writeJson(response, 200, buildStateResponse(readSnapshot(options.snapshot)));
+        writeJson(
+          response,
+          200,
+          buildStateResponse(readSnapshot(options.snapshot)),
+        );
         return;
       }
 
       if (path === "/api/v1/issues") {
-        writeJson(response, 200, buildIssueList(readSnapshot(options.snapshot)));
+        writeJson(
+          response,
+          200,
+          buildIssueList(readSnapshot(options.snapshot)),
+        );
         return;
       }
 
       if (path === "/api/v1/running") {
-        writeJson(response, 200, buildRunningList(readSnapshot(options.snapshot)));
+        writeJson(
+          response,
+          200,
+          buildRunningList(readSnapshot(options.snapshot)),
+        );
         return;
       }
 
       if (path === "/api/v1/retries") {
-        writeJson(response, 200, buildRetryList(readSnapshot(options.snapshot)));
+        writeJson(
+          response,
+          200,
+          buildRetryList(readSnapshot(options.snapshot)),
+        );
         return;
       }
 
       if (path === "/api/v1/completed") {
-        writeJson(response, 200, buildCompletedList(readSnapshot(options.snapshot)));
+        writeJson(
+          response,
+          200,
+          buildCompletedList(readSnapshot(options.snapshot)),
+        );
         return;
       }
 
-      if ((path === "/api/v1/refresh" || path === "/api/v1/reconcile") && method === "POST") {
+      if (
+        (path === "/api/v1/refresh" || path === "/api/v1/reconcile") &&
+        method === "POST"
+      ) {
         if (options.refresh) {
           await options.refresh();
         }
@@ -103,20 +134,25 @@ export async function startStatusServer(options: {
           queued: true,
           coalesced: false,
           requested_at: new Date().toISOString(),
-          operations: ["poll", "reconcile"]
+          operations: ["poll", "reconcile"],
         });
         return;
       }
 
       if (path.startsWith("/api/v1/issues/")) {
-        const identifier = decodeURIComponent(path.slice("/api/v1/issues/".length));
-        const payload = buildIssueDetail(readSnapshot(options.snapshot), identifier);
+        const identifier = decodeURIComponent(
+          path.slice("/api/v1/issues/".length),
+        );
+        const payload = buildIssueDetail(
+          readSnapshot(options.snapshot),
+          identifier,
+        );
         if (!payload) {
           writeJson(response, 404, {
             error: {
               code: "issue_not_found",
-              message: `Issue ${identifier} is not present in the current runtime state.`
-            }
+              message: `Issue ${identifier} is not present in the current runtime state.`,
+            },
           });
           return;
         }
@@ -124,15 +160,22 @@ export async function startStatusServer(options: {
         return;
       }
 
-      if (path.startsWith("/api/v1/") && path !== "/api/v1/refresh" && path !== "/api/v1/reconcile") {
+      if (
+        path.startsWith("/api/v1/") &&
+        path !== "/api/v1/refresh" &&
+        path !== "/api/v1/reconcile"
+      ) {
         const identifier = decodeURIComponent(path.slice("/api/v1/".length));
-        const payload = buildIssueDetail(readSnapshot(options.snapshot), identifier);
+        const payload = buildIssueDetail(
+          readSnapshot(options.snapshot),
+          identifier,
+        );
         if (!payload) {
           writeJson(response, 404, {
             error: {
               code: "issue_not_found",
-              message: `Issue ${identifier} is not present in the current runtime state.`
-            }
+              message: `Issue ${identifier} is not present in the current runtime state.`,
+            },
           });
           return;
         }
@@ -142,7 +185,9 @@ export async function startStatusServer(options: {
 
       if (path === "/") {
         response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
-        response.end(renderHtml(buildStateResponse(readSnapshot(options.snapshot))));
+        response.end(
+          renderHtml(buildStateResponse(readSnapshot(options.snapshot))),
+        );
         return;
       }
 
@@ -152,19 +197,19 @@ export async function startStatusServer(options: {
       logger.error("status request failed", {
         method,
         path,
-        reason: error instanceof Error ? error.message : String(error)
+        reason: error instanceof Error ? error.message : String(error),
       });
       writeJson(response, 500, {
         error: {
           code: "status_request_failed",
-          message: "The status request could not be completed."
-        }
+          message: "The status request could not be completed.",
+        },
       });
     } finally {
       logger.info("status request completed", {
         method,
         path,
-        status_code: response.statusCode
+        status_code: response.statusCode,
       });
     }
   });
@@ -184,7 +229,7 @@ export async function startStatusServer(options: {
 
   return {
     baseUrl: `http://127.0.0.1:${address.port}`,
-    stop: () => stopServer(server)
+    stop: () => stopServer(server),
   };
 }
 
@@ -194,7 +239,17 @@ function parsePath(request: IncomingMessage): string {
 }
 
 function validateMethod(path: string, method: string): "known_route" | null {
-  if (path === "/" || path === "/api/v1/state" || path === "/api/v1/issues" || path === "/api/v1/running" || path === "/api/v1/retries" || path === "/api/v1/completed" || path === "/api/v1/health" || path === "/api/v1/ready" || path.startsWith("/api/v1/issues/")) {
+  if (
+    path === "/" ||
+    path === "/api/v1/state" ||
+    path === "/api/v1/issues" ||
+    path === "/api/v1/running" ||
+    path === "/api/v1/retries" ||
+    path === "/api/v1/completed" ||
+    path === "/api/v1/health" ||
+    path === "/api/v1/ready" ||
+    path.startsWith("/api/v1/issues/")
+  ) {
     return method === "GET" ? null : "known_route";
   }
 
@@ -223,13 +278,13 @@ function buildStateResponse(snapshot: RuntimeSnapshot) {
     counts: {
       running: running.length,
       retrying: retrying.length,
-      completed: completed.length
+      completed: completed.length,
     },
     running,
     retrying,
     completed_issue_ids: completed,
     codex_totals: null,
-    rate_limits: null
+    rate_limits: null,
   };
 }
 
@@ -246,7 +301,7 @@ function buildRunningList(snapshot: RuntimeSnapshot) {
     last_event_at: entry.lastCodexTimestamp ?? null,
     last_message: entry.lastCodexMessage ?? null,
     turn_count: entry.turnCount ?? 0,
-    started_at: entry.startedAt ?? null
+    started_at: entry.startedAt ?? null,
   }));
 }
 
@@ -256,7 +311,7 @@ function buildRetryList(snapshot: RuntimeSnapshot) {
     issue_identifier: entry.identifier,
     attempt: entry.attempt,
     due_at: new Date(entry.dueAtMs).toISOString(),
-    error: entry.error
+    error: entry.error,
   }));
 }
 
@@ -278,7 +333,7 @@ function buildIssueList(snapshot: RuntimeSnapshot) {
     entries.set(running.identifier, {
       issue_identifier: running.identifier,
       issue_id: running.issueId,
-      status: "running"
+      status: "running",
     });
   }
 
@@ -286,7 +341,7 @@ function buildIssueList(snapshot: RuntimeSnapshot) {
     entries.set(retry.identifier, {
       issue_identifier: retry.identifier,
       issue_id: retry.issueId,
-      status: "retrying"
+      status: "retrying",
     });
   }
 
@@ -295,19 +350,23 @@ function buildIssueList(snapshot: RuntimeSnapshot) {
       entries.set(identifier, {
         issue_identifier: identifier,
         issue_id: null,
-        status: "completed"
+        status: "completed",
       });
     }
   }
 
   return Array.from(entries.values()).sort((left, right) =>
-    left.issue_identifier.localeCompare(right.issue_identifier)
+    left.issue_identifier.localeCompare(right.issue_identifier),
   );
 }
 
 function buildIssueDetail(snapshot: RuntimeSnapshot, identifier: string) {
-  const runningEntry = (snapshot.running ?? []).find((entry) => entry.identifier === identifier);
-  const retryEntry = (snapshot.retries ?? []).find((entry) => entry.identifier === identifier);
+  const runningEntry = (snapshot.running ?? []).find(
+    (entry) => entry.identifier === identifier,
+  );
+  const retryEntry = (snapshot.retries ?? []).find(
+    (entry) => entry.identifier === identifier,
+  );
   const completed = (snapshot.completedIssueIds ?? []).includes(identifier);
 
   if (!runningEntry && !retryEntry && !completed) {
@@ -315,7 +374,11 @@ function buildIssueDetail(snapshot: RuntimeSnapshot, identifier: string) {
   }
 
   const issueId = runningEntry?.issueId ?? retryEntry?.issueId ?? null;
-  const status = runningEntry ? "running" : retryEntry ? "retrying" : "completed";
+  const status = runningEntry
+    ? "running"
+    : retryEntry
+      ? "retrying"
+      : "completed";
 
   return {
     issue_identifier: identifier,
@@ -334,7 +397,7 @@ function buildIssueDetail(snapshot: RuntimeSnapshot, identifier: string) {
           last_event_at: runningEntry.lastCodexTimestamp ?? null,
           last_message: runningEntry.lastCodexMessage ?? null,
           turn_count: runningEntry.turnCount ?? 0,
-          started_at: runningEntry.startedAt ?? null
+          started_at: runningEntry.startedAt ?? null,
         }
       : null,
     retry: retryEntry
@@ -343,15 +406,21 @@ function buildIssueDetail(snapshot: RuntimeSnapshot, identifier: string) {
           issue_identifier: retryEntry.identifier,
           attempt: retryEntry.attempt,
           due_at: new Date(retryEntry.dueAtMs).toISOString(),
-          error: retryEntry.error
+          error: retryEntry.error,
         }
       : null,
-    last_error: retryEntry?.error ?? null
+    last_error: retryEntry?.error ?? null,
   };
 }
 
-function writeJson(response: ServerResponse, statusCode: number, body: unknown): void {
-  response.writeHead(statusCode, { "content-type": "application/json; charset=utf-8" });
+function writeJson(
+  response: ServerResponse,
+  statusCode: number,
+  body: unknown,
+): void {
+  response.writeHead(statusCode, {
+    "content-type": "application/json; charset=utf-8",
+  });
   response.end(JSON.stringify(body));
 }
 

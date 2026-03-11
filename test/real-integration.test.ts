@@ -11,7 +11,9 @@ import { LinearTrackerClient } from "../src/tracker/linear-client.js";
 const tempDirs: string[] = [];
 
 afterEach(async () => {
-  await Promise.all(tempDirs.map((dir) => rm(dir, { recursive: true, force: true })));
+  await Promise.all(
+    tempDirs.map((dir) => rm(dir, { recursive: true, force: true })),
+  );
   tempDirs.length = 0;
 });
 
@@ -23,13 +25,15 @@ describe("real integration smoke", () => {
     const apiKey = process.env.LINEAR_API_KEY;
     const projectSlug = process.env.SYMPHONY_LINEAR_PROJECT_SLUG;
     if (!apiKey || !projectSlug) {
-      throw new Error("LINEAR_API_KEY and SYMPHONY_LINEAR_PROJECT_SLUG are required");
+      throw new Error(
+        "LINEAR_API_KEY and SYMPHONY_LINEAR_PROJECT_SLUG are required",
+      );
     }
 
     const client = new LinearTrackerClient({
       endpoint: "https://api.linear.app/graphql",
       apiKey,
-      projectSlug
+      projectSlug,
     });
 
     const issues = await client.fetchIssuesByStates(["Todo"]);
@@ -38,10 +42,12 @@ describe("real integration smoke", () => {
 
   realIt("starts a real Codex app-server session", async () => {
     const codexPath = spawnSync("bash", ["-lc", "command -v codex"], {
-      encoding: "utf8"
+      encoding: "utf8",
     });
     if (codexPath.status !== 0) {
-      throw new Error("codex command is required for real integration smoke tests");
+      throw new Error(
+        "codex command is required for real integration smoke tests",
+      );
     }
 
     const workspacePath = await mkdtemp(join(tmpdir(), "symphony-real-codex-"));
@@ -54,14 +60,14 @@ describe("real integration smoke", () => {
       threadSandbox: "workspace-write",
       turnSandboxPolicy: { type: "workspaceWrite" },
       readTimeoutMs: 5000,
-      turnTimeoutMs: 60000
+      turnTimeoutMs: 60000,
     });
 
     try {
       await client.start();
       const result = await client.runTurn({
         prompt: "Reply with READY and stop.",
-        title: "SMOKE-1: Real Codex session"
+        title: "SMOKE-1: Real Codex session",
       });
       expect(result.outcome).toBe("completed");
     } finally {

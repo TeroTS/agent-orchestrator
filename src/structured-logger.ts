@@ -9,9 +9,11 @@ export function createStructuredLogger(options?: {
   write?: (line: string) => void;
   fallbackWrite?: (line: string) => void;
 }): StructuredLogger {
-  const write = options?.write ?? ((line: string) => process.stderr.write(`${line}\n`));
+  const write =
+    options?.write ?? ((line: string) => process.stderr.write(`${line}\n`));
   const fallbackWrite =
-    options?.fallbackWrite ?? ((line: string) => process.stderr.write(`${line}\n`));
+    options?.fallbackWrite ??
+    ((line: string) => process.stderr.write(`${line}\n`));
 
   const safeWrite = (line: string) => {
     try {
@@ -21,8 +23,8 @@ export function createStructuredLogger(options?: {
         fallbackWrite(
           formatLine("warn", "log sink failure", {
             failed_line: line,
-            reason: error instanceof Error ? error.message : String(error)
-          })
+            reason: error instanceof Error ? error.message : String(error),
+          }),
         );
       } catch {
         // Sink isolation is best-effort only.
@@ -34,11 +36,15 @@ export function createStructuredLogger(options?: {
     debug: (message, fields) => safeWrite(formatLine("debug", message, fields)),
     info: (message, fields) => safeWrite(formatLine("info", message, fields)),
     warn: (message, fields) => safeWrite(formatLine("warn", message, fields)),
-    error: (message, fields) => safeWrite(formatLine("error", message, fields))
+    error: (message, fields) => safeWrite(formatLine("error", message, fields)),
   };
 }
 
-function formatLine(level: string, message: string, fields: Record<string, unknown> = {}): string {
+function formatLine(
+  level: string,
+  message: string,
+  fields: Record<string, unknown> = {},
+): string {
   const parts = [`level=${level}`, `msg=${quote(message)}`];
 
   for (const key of Object.keys(fields).sort()) {

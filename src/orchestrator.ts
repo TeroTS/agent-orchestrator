@@ -3,26 +3,33 @@ import type { CodexRuntimeEvent } from "./codex-app-server.js";
 import {
   computeReconciliationAction,
   computeRetryDelayMs,
-  type OrchestrationIssue
+  type OrchestrationIssue,
 } from "./orchestration-rules.js";
 import {
   buildRetryEntry,
   createRuntimeSnapshot,
   selectIssuesToDispatch,
   type RetryEntry,
-  type RunningEntry
+  type RunningEntry,
 } from "./orchestrator-state.js";
 import {
   validateWorkflowForDispatch,
   type EffectiveWorkflowConfig,
-  type WorkflowDefinition
+  type WorkflowDefinition,
 } from "./workflow-loader.js";
-import { createStructuredLogger, type StructuredLogger } from "./structured-logger.js";
+import {
+  createStructuredLogger,
+  type StructuredLogger,
+} from "./structured-logger.js";
 
 export interface WorkflowStoreLike {
   load(): Promise<{ current: WorkflowDefinition }>;
   current(): WorkflowDefinition;
-  reload(): Promise<{ ok: boolean; current?: WorkflowDefinition | null; error?: unknown }>;
+  reload(): Promise<{
+    ok: boolean;
+    current?: WorkflowDefinition | null;
+    error?: unknown;
+  }>;
 }
 
 export interface TrackerLike {
@@ -60,7 +67,10 @@ export class SymphonyOrchestrator {
   private readonly logger: StructuredLogger;
 
   private config: EffectiveWorkflowConfig | null = null;
-  private running = new Map<string, RunningEntry & { cancel: () => void; retryAttempt: number | null }>();
+  private running = new Map<
+    string,
+    RunningEntry & { cancel: () => void; retryAttempt: number | null }
+  >();
   private claimed = new Set<string>();
   private retryAttempts = new Map<string, RetryEntry>();
   private retryTimers = new Map<string, NodeJS.Timeout>();
@@ -79,7 +89,7 @@ export class SymphonyOrchestrator {
     const loaded = await this.workflowStore.load();
     this.config = this.requireValidConfig(loaded.current);
     this.logger.info("startup completed", {
-      outcome: "completed"
+      outcome: "completed",
     });
     await this.startupTerminalWorkspaceCleanup();
     this.scheduleTick(0);
@@ -109,10 +119,12 @@ export class SymphonyOrchestrator {
     const refreshedConfig = this.currentConfig();
     let issues: OrchestrationIssue[];
     try {
-      issues = await this.tracker.fetchCandidateIssues(refreshedConfig.tracker.activeStates);
+      issues = await this.tracker.fetchCandidateIssues(
+        refreshedConfig.tracker.activeStates,
+      );
     } catch (error) {
       this.logger.warn("candidate fetch failed", {
-        reason: error instanceof Error ? error.message : String(error)
+        reason: error instanceof Error ? error.message : String(error),
       });
       this.scheduleTick(refreshedConfig.polling.intervalMs);
       return;
@@ -124,16 +136,20 @@ export class SymphonyOrchestrator {
       terminalStates: refreshedConfig.tracker.terminalStates,
       claimedIssueIds: this.claimed,
       runningIssues: new Map(
-        Array.from(this.running.entries(), ([id, entry]) => [id, { issue: entry.issue, startedAt: entry.startedAt }])
+        Array.from(this.running.entries(), ([id, entry]) => [
+          id,
+          { issue: entry.issue, startedAt: entry.startedAt },
+        ]),
       ),
       maxConcurrentAgents: refreshedConfig.agent.maxConcurrentAgents,
-      maxConcurrentAgentsByState: refreshedConfig.agent.maxConcurrentAgentsByState
+      maxConcurrentAgentsByState:
+        refreshedConfig.agent.maxConcurrentAgentsByState,
     });
 
     for (const issue of selected) {
       this.logger.info("dispatch scheduled", {
         issue_id: issue.id,
-        issue_identifier: issue.identifier
+        issue_identifier: issue.identifier,
       });
       await this.dispatchNow(issue, null);
     }
@@ -141,7 +157,10 @@ export class SymphonyOrchestrator {
     this.scheduleTick(refreshedConfig.polling.intervalMs);
   }
 
-  async dispatchNow(issue: OrchestrationIssue, attempt: number | null): Promise<void> {
+  async dispatchNow(
+    issue: OrchestrationIssue,
+    attempt: number | null,
+  ): Promise<void> {
     this.claimed.add(issue.id);
     this.retryAttempts.delete(issue.id);
     this.clearRetryTimer(issue.id);
@@ -154,7 +173,7 @@ export class SymphonyOrchestrator {
       startedAt: new Date(),
       cancel: () => {},
       retryAttempt: attempt,
-      turnCount: 0
+      turnCount: 0,
     };
     this.running.set(issue.id, runningEntry);
 
@@ -165,16 +184,21 @@ export class SymphonyOrchestrator {
         attempt,
         onEvent: (event) => {
           this.handleRuntimeEvent(issue.id, event);
-        }
+        },
       });
     } catch (error) {
       this.running.delete(issue.id);
       this.logger.error("worker spawn failed", {
         issue_id: issue.id,
         issue_identifier: issue.identifier,
-        reason: error instanceof Error ? error.message : String(error)
+        reason: error instanceof Error ? error.message : String(error),
       });
-      this.scheduleRetry(issue, (attempt ?? 0) + 1, "failed to spawn agent", false);
+      this.scheduleRetry(
+        issue,
+        (attempt ?? 0) + 1,
+        "failed to spawn agent",
+        false,
+      );
       return;
     }
 
@@ -187,7 +211,7 @@ export class SymphonyOrchestrator {
       .catch((error) => {
         void this.onWorkerExit(issue, {
           reason: "error",
-          error: error instanceof Error ? error.message : String(error)
+          error: error instanceof Error ? error.message : String(error),
         });
       });
   }
@@ -207,32 +231,38 @@ export class SymphonyOrchestrator {
             lastCodexEvent: entry.lastCodexEvent,
             lastCodexTimestamp: entry.lastCodexTimestamp,
             lastCodexMessage: entry.lastCodexMessage,
-            turnCount: entry.turnCount
-          }
-        ])
+            turnCount: entry.turnCount,
+          },
+        ]),
       ),
       retryEntries: this.retryAttempts,
-      completedIssueIds: this.completed
+      completedIssueIds: this.completed,
     });
   }
 
   private async startupTerminalWorkspaceCleanup(): Promise<void> {
     const config = this.currentConfig();
     try {
-      const terminalIssues = await this.tracker.fetchIssuesByStates(config.tracker.terminalStates);
+      const terminalIssues = await this.tracker.fetchIssuesByStates(
+        config.tracker.terminalStates,
+      );
       await Promise.all(
         terminalIssues.map((issue) =>
-          this.removeWorkspaceFn(workspacePathFor(config.workspace.root, issue.identifier))
-        )
+          this.removeWorkspaceFn(
+            workspacePathFor(config.workspace.root, issue.identifier),
+          ),
+        ),
       );
     } catch (error) {
       this.logger.warn("startup terminal cleanup failed", {
-        reason: error instanceof Error ? error.message : String(error)
+        reason: error instanceof Error ? error.message : String(error),
       });
     }
   }
 
-  private async reconcileRunningIssues(config: EffectiveWorkflowConfig): Promise<void> {
+  private async reconcileRunningIssues(
+    config: EffectiveWorkflowConfig,
+  ): Promise<void> {
     this.reconcileStalledRuns(config);
     if (this.running.size === 0) {
       return;
@@ -244,7 +274,7 @@ export class SymphonyOrchestrator {
       refreshedIssues = await this.tracker.fetchIssueStatesByIds(runningIds);
     } catch (error) {
       this.logger.warn("reconciliation refresh failed", {
-        reason: error instanceof Error ? error.message : String(error)
+        reason: error instanceof Error ? error.message : String(error),
       });
       return;
     }
@@ -258,7 +288,7 @@ export class SymphonyOrchestrator {
       const action = computeReconciliationAction({
         nextState: refreshedIssue.state,
         activeStates: config.tracker.activeStates,
-        terminalStates: config.tracker.terminalStates
+        terminalStates: config.tracker.terminalStates,
       });
 
       if (action === "update") {
@@ -270,11 +300,13 @@ export class SymphonyOrchestrator {
       this.logger.info("run reconciled", {
         issue_id: refreshedIssue.id,
         issue_identifier: refreshedIssue.identifier,
-        outcome: action
+        outcome: action,
       });
       this.running.delete(refreshedIssue.id);
       if (action === "stop_and_cleanup") {
-        await this.removeWorkspaceFn(workspacePathFor(config.workspace.root, refreshedIssue.identifier));
+        await this.removeWorkspaceFn(
+          workspacePathFor(config.workspace.root, refreshedIssue.identifier),
+        );
       }
       this.claimed.delete(refreshedIssue.id);
     }
@@ -282,7 +314,7 @@ export class SymphonyOrchestrator {
 
   private async onWorkerExit(
     issue: OrchestrationIssue,
-    result: { reason: "normal" } | { reason: "error"; error: string }
+    result: { reason: "normal" } | { reason: "error"; error: string },
   ): Promise<void> {
     const running = this.running.get(issue.id);
     if (!running) {
@@ -295,7 +327,7 @@ export class SymphonyOrchestrator {
       this.logger.info("worker completed", {
         issue_id: issue.id,
         issue_identifier: issue.identifier,
-        outcome: "completed"
+        outcome: "completed",
       });
       this.completed.add(issue.id);
       this.scheduleRetry(issue, 1, null, true);
@@ -306,7 +338,7 @@ export class SymphonyOrchestrator {
       issue_id: issue.id,
       issue_identifier: issue.identifier,
       outcome: "retrying",
-      reason: result.error
+      reason: result.error,
     });
     const nextAttempt = (running.retryAttempt ?? 0) + 1;
     this.scheduleRetry(issue, nextAttempt, result.error, false);
@@ -316,13 +348,13 @@ export class SymphonyOrchestrator {
     issue: OrchestrationIssue,
     attempt: number,
     error: string | null,
-    normalExit: boolean
+    normalExit: boolean,
   ): void {
     const config = this.currentConfig();
     const delayMs = computeRetryDelayMs({
       attempt,
       maxRetryBackoffMs: config.agent.maxRetryBackoffMs,
-      normalExit
+      normalExit,
     });
 
     const retryEntry = buildRetryEntry({
@@ -331,7 +363,7 @@ export class SymphonyOrchestrator {
       attempt,
       error,
       delayMs,
-      nowMs: Date.now()
+      nowMs: Date.now(),
     });
 
     this.retryAttempts.set(issue.id, retryEntry);
@@ -353,7 +385,9 @@ export class SymphonyOrchestrator {
     this.clearRetryTimer(issueId);
 
     const config = this.currentConfig();
-    const candidates = await this.tracker.fetchCandidateIssues(config.tracker.activeStates);
+    const candidates = await this.tracker.fetchCandidateIssues(
+      config.tracker.activeStates,
+    );
     const issue = candidates.find((candidate) => candidate.id === issueId);
     if (!issue) {
       this.claimed.delete(issueId);
@@ -364,16 +398,26 @@ export class SymphonyOrchestrator {
       issues: [issue],
       activeStates: config.tracker.activeStates,
       terminalStates: config.tracker.terminalStates,
-      claimedIssueIds: new Set(Array.from(this.claimed).filter((id) => id !== issueId)),
+      claimedIssueIds: new Set(
+        Array.from(this.claimed).filter((id) => id !== issueId),
+      ),
       runningIssues: new Map(
-        Array.from(this.running.entries(), ([id, entry]) => [id, { issue: entry.issue, startedAt: entry.startedAt }])
+        Array.from(this.running.entries(), ([id, entry]) => [
+          id,
+          { issue: entry.issue, startedAt: entry.startedAt },
+        ]),
       ),
       maxConcurrentAgents: config.agent.maxConcurrentAgents,
-      maxConcurrentAgentsByState: config.agent.maxConcurrentAgentsByState
+      maxConcurrentAgentsByState: config.agent.maxConcurrentAgentsByState,
     });
 
     if (selected.length === 0) {
-      this.scheduleRetry(issue, retryEntry.attempt + 1, "no available orchestrator slots", false);
+      this.scheduleRetry(
+        issue,
+        retryEntry.attempt + 1,
+        "no available orchestrator slots",
+        false,
+      );
       return;
     }
 
@@ -387,12 +431,14 @@ export class SymphonyOrchestrator {
     return this.config;
   }
 
-  private requireValidConfig(definition: WorkflowDefinition): EffectiveWorkflowConfig {
+  private requireValidConfig(
+    definition: WorkflowDefinition,
+  ): EffectiveWorkflowConfig {
     const validation = validateWorkflowForDispatch(definition);
     if (!validation.ok) {
       this.logger.error("validation failed", {
         outcome: "failed",
-        reason: validation.errors.join(", ")
+        reason: validation.errors.join(", "),
       });
       throw new Error(validation.errors.join(", "));
     }
@@ -420,7 +466,10 @@ export class SymphonyOrchestrator {
     const reloaded = await this.workflowStore.reload();
     if (!reloaded.ok) {
       this.logger.warn("workflow reload failed", {
-        reason: reloaded.error instanceof Error ? reloaded.error.message : String(reloaded.error)
+        reason:
+          reloaded.error instanceof Error
+            ? reloaded.error.message
+            : String(reloaded.error),
       });
       return;
     }
@@ -429,7 +478,7 @@ export class SymphonyOrchestrator {
     const validation = validateWorkflowForDispatch(definition);
     if (!validation.ok) {
       this.logger.error("workflow reload validation failed", {
-        reason: validation.errors.join(", ")
+        reason: validation.errors.join(", "),
       });
       return;
     }
@@ -460,13 +509,13 @@ export class SymphonyOrchestrator {
       this.logger.warn("run stalled", {
         issue_id: running.issue.id,
         issue_identifier: running.issue.identifier,
-        outcome: "retrying"
+        outcome: "retrying",
       });
       this.scheduleRetry(
         running.issue,
         (running.retryAttempt ?? 0) + 1,
         "stalled session",
-        false
+        false,
       );
     }
   }
@@ -493,7 +542,9 @@ export class SymphonyOrchestrator {
     }
 
     if (event.event === "session_started") {
-      const payload = event.payload as { threadId?: unknown; turnId?: unknown } | undefined;
+      const payload = event.payload as
+        | { threadId?: unknown; turnId?: unknown }
+        | undefined;
       if (typeof payload?.threadId === "string") {
         running.threadId = payload.threadId;
       }

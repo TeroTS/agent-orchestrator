@@ -1,4 +1,7 @@
-import { loadWorkflowDefinition, type WorkflowDefinition } from "./workflow-loader.js";
+import {
+  loadWorkflowDefinition,
+  type WorkflowDefinition,
+} from "./workflow-loader.js";
 
 export interface WorkflowStoreOptions {
   workflowPath: string;
@@ -17,21 +20,25 @@ export class WorkflowStore {
   }
 
   async load(): Promise<{ current: WorkflowDefinition }> {
-    const definition = await loadWorkflowDefinition({ workflowPath: this.workflowPath });
+    const definition = await loadWorkflowDefinition({
+      workflowPath: this.workflowPath,
+    });
     this.currentDefinition = definition;
     return { current: definition };
   }
 
   async reload(): Promise<WorkflowStoreLoadResult> {
     try {
-      const definition = await loadWorkflowDefinition({ workflowPath: this.workflowPath });
+      const definition = await loadWorkflowDefinition({
+        workflowPath: this.workflowPath,
+      });
       this.currentDefinition = definition;
       return { ok: true, current: definition };
     } catch (error) {
       return {
         ok: false,
         error,
-        current: this.currentDefinition
+        current: this.currentDefinition,
       };
     }
   }

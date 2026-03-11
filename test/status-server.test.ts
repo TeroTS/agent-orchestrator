@@ -20,8 +20,8 @@ describe("startStatusServer", () => {
             identifier: "ABC-1",
             state: "In Progress",
             sessionId: "thread-1-turn-1",
-            startedAt: "2026-03-11T00:00:00.000Z"
-          }
+            startedAt: "2026-03-11T00:00:00.000Z",
+          },
         ],
         retries: [
           {
@@ -29,14 +29,14 @@ describe("startStatusServer", () => {
             identifier: "ABC-2",
             attempt: 2,
             dueAtMs: 123456,
-            error: "retrying"
-          }
+            error: "retrying",
+          },
         ],
-        completedIssueIds: ["ABC-3"]
+        completedIssueIds: ["ABC-3"],
       }),
       refresh: async () => ({
-        queued: true
-      })
+        queued: true,
+      }),
     });
     servers.push(server);
 
@@ -48,26 +48,26 @@ describe("startStatusServer", () => {
         counts: {
           running: 1,
           retrying: 1,
-          completed: 1
+          completed: 1,
         },
         running: [
           expect.objectContaining({
             issue_id: "issue-1",
             issue_identifier: "ABC-1",
-            session_id: "thread-1-turn-1"
-          })
+            session_id: "thread-1-turn-1",
+          }),
         ],
         retrying: [
           expect.objectContaining({
             issue_id: "issue-2",
             issue_identifier: "ABC-2",
-            attempt: 2
-          })
+            attempt: 2,
+          }),
         ],
         completed_issue_ids: ["ABC-3"],
         codex_totals: null,
-        rate_limits: null
-      })
+        rate_limits: null,
+      }),
     );
 
     const issuesResponse = await fetch(`${server.baseUrl}/api/v1/issues`);
@@ -75,32 +75,32 @@ describe("startStatusServer", () => {
     await expect(issuesResponse.json()).resolves.toEqual([
       expect.objectContaining({
         issue_identifier: "ABC-1",
-        status: "running"
+        status: "running",
       }),
       expect.objectContaining({
         issue_identifier: "ABC-2",
-        status: "retrying"
+        status: "retrying",
       }),
       expect.objectContaining({
         issue_identifier: "ABC-3",
-        status: "completed"
-      })
+        status: "completed",
+      }),
     ]);
 
     const runningResponse = await fetch(`${server.baseUrl}/api/v1/running`);
     expect(runningResponse.status).toBe(200);
     await expect(runningResponse.json()).resolves.toEqual([
       expect.objectContaining({
-        issue_identifier: "ABC-1"
-      })
+        issue_identifier: "ABC-1",
+      }),
     ]);
 
     const retriesResponse = await fetch(`${server.baseUrl}/api/v1/retries`);
     expect(retriesResponse.status).toBe(200);
     await expect(retriesResponse.json()).resolves.toEqual([
       expect.objectContaining({
-        issue_identifier: "ABC-2"
-      })
+        issue_identifier: "ABC-2",
+      }),
     ]);
 
     const completedResponse = await fetch(`${server.baseUrl}/api/v1/completed`);
@@ -117,7 +117,9 @@ describe("startStatusServer", () => {
 
     const dashboardResponse = await fetch(`${server.baseUrl}/`);
     expect(dashboardResponse.status).toBe(200);
-    await expect(dashboardResponse.text()).resolves.toContain("completed_issue_ids");
+    await expect(dashboardResponse.text()).resolves.toContain(
+      "completed_issue_ids",
+    );
   });
 
   it("serves issue-scoped state and returns 404 for unknown issues", async () => {
@@ -129,8 +131,8 @@ describe("startStatusServer", () => {
             issueId: "issue-1",
             identifier: "ABC-1",
             state: "In Progress",
-            startedAt: "2026-03-11T00:00:00.000Z"
-          }
+            startedAt: "2026-03-11T00:00:00.000Z",
+          },
         ],
         retries: [
           {
@@ -138,14 +140,14 @@ describe("startStatusServer", () => {
             identifier: "ABC-2",
             attempt: 2,
             dueAtMs: 123456,
-            error: "retrying"
-          }
+            error: "retrying",
+          },
         ],
-        completedIssueIds: ["ABC-3"]
+        completedIssueIds: ["ABC-3"],
       }),
       refresh: async () => ({
-        queued: true
-      })
+        queued: true,
+      }),
     });
     servers.push(server);
 
@@ -162,19 +164,21 @@ describe("startStatusServer", () => {
           issue_identifier: "ABC-2",
           attempt: 2,
           due_at: "1970-01-01T00:02:03.456Z",
-          error: "retrying"
+          error: "retrying",
         },
-        last_error: "retrying"
-      })
+        last_error: "retrying",
+      }),
     );
 
-    const missingIssueResponse = await fetch(`${server.baseUrl}/api/v1/issues/MISSING-1`);
+    const missingIssueResponse = await fetch(
+      `${server.baseUrl}/api/v1/issues/MISSING-1`,
+    );
     expect(missingIssueResponse.status).toBe(404);
     await expect(missingIssueResponse.json()).resolves.toEqual({
       error: {
         code: "issue_not_found",
-        message: "Issue MISSING-1 is not present in the current runtime state."
-      }
+        message: "Issue MISSING-1 is not present in the current runtime state.",
+      },
     });
   });
 
@@ -183,36 +187,39 @@ describe("startStatusServer", () => {
       debug: vi.fn(),
       info: vi.fn(),
       warn: vi.fn(),
-      error: vi.fn()
+      error: vi.fn(),
     };
     const server = await startStatusServer({
       port: 0,
       snapshot: () => ({
         running: [],
         retries: [],
-        completedIssueIds: []
+        completedIssueIds: [],
       }),
       refresh: async () => ({
-        queued: true
+        queued: true,
       }),
-      logger
+      logger,
     });
     servers.push(server);
 
     const refreshResponse = await fetch(`${server.baseUrl}/api/v1/refresh`, {
-      method: "POST"
+      method: "POST",
     });
     expect(refreshResponse.status).toBe(202);
     await expect(refreshResponse.json()).resolves.toEqual({
       queued: true,
       coalesced: false,
       requested_at: expect.any(String),
-      operations: ["poll", "reconcile"]
+      operations: ["poll", "reconcile"],
     });
 
-    const reconcileResponse = await fetch(`${server.baseUrl}/api/v1/reconcile`, {
-      method: "POST"
-    });
+    const reconcileResponse = await fetch(
+      `${server.baseUrl}/api/v1/reconcile`,
+      {
+        method: "POST",
+      },
+    );
     expect(reconcileResponse.status).toBe(202);
 
     await fetch(`${server.baseUrl}/missing`);
@@ -222,16 +229,16 @@ describe("startStatusServer", () => {
       expect.objectContaining({
         path: "/api/v1/refresh",
         method: "POST",
-        status_code: 202
-      })
+        status_code: 202,
+      }),
     );
     expect(logger.info).toHaveBeenCalledWith(
       "status request completed",
       expect.objectContaining({
         path: "/missing",
         method: "GET",
-        status_code: 404
-      })
+        status_code: 404,
+      }),
     );
   });
 
@@ -241,8 +248,8 @@ describe("startStatusServer", () => {
       snapshot: () => ({
         running: [],
         retries: [],
-        completedIssueIds: []
-      })
+        completedIssueIds: [],
+      }),
     });
     servers.push(server);
 
@@ -256,20 +263,20 @@ describe("startStatusServer", () => {
       snapshot: () => ({
         running: [],
         retries: [],
-        completedIssueIds: []
-      })
+        completedIssueIds: [],
+      }),
     });
     servers.push(server);
 
     const statePost = await fetch(`${server.baseUrl}/api/v1/state`, {
-      method: "POST"
+      method: "POST",
     });
     expect(statePost.status).toBe(405);
     await expect(statePost.json()).resolves.toEqual({
       error: {
         code: "method_not_allowed",
-        message: "Method POST is not allowed for /api/v1/state."
-      }
+        message: "Method POST is not allowed for /api/v1/state.",
+      },
     });
 
     const refreshGet = await fetch(`${server.baseUrl}/api/v1/refresh`);
@@ -277,8 +284,8 @@ describe("startStatusServer", () => {
     await expect(refreshGet.json()).resolves.toEqual({
       error: {
         code: "method_not_allowed",
-        message: "Method GET is not allowed for /api/v1/refresh."
-      }
+        message: "Method GET is not allowed for /api/v1/refresh.",
+      },
     });
   });
 });

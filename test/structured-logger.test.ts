@@ -6,14 +6,14 @@ describe("createStructuredLogger", () => {
   it("formats stable key=value logs with issue and session context", () => {
     const lines: string[] = [];
     const logger = createStructuredLogger({
-      write: (line) => lines.push(line)
+      write: (line) => lines.push(line),
     });
 
     logger.info("dispatch completed", {
       issue_id: "issue-1",
       issue_identifier: "ABC-1",
       session_id: "thread-1-turn-1",
-      outcome: "completed"
+      outcome: "completed",
     });
 
     expect(lines).toHaveLength(1);
@@ -31,13 +31,13 @@ describe("createStructuredLogger", () => {
       write: () => {
         throw new Error("sink exploded");
       },
-      fallbackWrite: (line) => fallbackLines.push(line)
+      fallbackWrite: (line) => fallbackLines.push(line),
     });
 
     expect(() =>
       logger.error("dispatch failed", {
-        issue_id: "issue-1"
-      })
+        issue_id: "issue-1",
+      }),
     ).not.toThrow();
 
     expect(fallbackLines).toHaveLength(1);

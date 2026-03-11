@@ -1,7 +1,7 @@
 import {
   isIssueDispatchEligible,
   sortDispatchCandidates,
-  type OrchestrationIssue
+  type OrchestrationIssue,
 } from "./orchestration-rules.js";
 
 export interface RunningEntry {
@@ -35,7 +35,9 @@ export interface SelectIssuesToDispatchInput {
   maxConcurrentAgentsByState: Record<string, number>;
 }
 
-export function selectIssuesToDispatch(input: SelectIssuesToDispatchInput): OrchestrationIssue[] {
+export function selectIssuesToDispatch(
+  input: SelectIssuesToDispatchInput,
+): OrchestrationIssue[] {
   const selected: OrchestrationIssue[] = [];
   const runningIssues = new Map(input.runningIssues);
   const claimedIssueIds = new Set(input.claimedIssueIds);
@@ -47,10 +49,10 @@ export function selectIssuesToDispatch(input: SelectIssuesToDispatchInput): Orch
       terminalStates: input.terminalStates,
       claimedIssueIds,
       runningIssues: new Map(
-        Array.from(runningIssues.entries(), ([id, entry]) => [id, entry.issue])
+        Array.from(runningIssues.entries(), ([id, entry]) => [id, entry.issue]),
       ),
       maxConcurrentAgents: input.maxConcurrentAgents,
-      maxConcurrentAgentsByState: input.maxConcurrentAgentsByState
+      maxConcurrentAgentsByState: input.maxConcurrentAgentsByState,
     });
 
     if (!eligibility.ok) {
@@ -61,7 +63,7 @@ export function selectIssuesToDispatch(input: SelectIssuesToDispatchInput): Orch
     claimedIssueIds.add(issue.id);
     runningIssues.set(issue.id, {
       issue,
-      startedAt: new Date(0)
+      startedAt: new Date(0),
     });
   }
 
@@ -81,7 +83,7 @@ export function buildRetryEntry(input: {
     identifier: input.identifier,
     attempt: input.attempt,
     error: input.error,
-    dueAtMs: input.nowMs + input.delayMs
+    dueAtMs: input.nowMs + input.delayMs,
   };
 }
 
@@ -103,9 +105,9 @@ export function createRuntimeSnapshot(input: {
       lastCodexTimestamp: entry.lastCodexTimestamp,
       lastCodexMessage: entry.lastCodexMessage,
       turnCount: entry.turnCount ?? 0,
-      startedAt: entry.startedAt.toISOString()
+      startedAt: entry.startedAt.toISOString(),
     })),
     retries: Array.from(input.retryEntries.values()),
-    completedIssueIds: Array.from(input.completedIssueIds).sort()
+    completedIssueIds: Array.from(input.completedIssueIds).sort(),
   };
 }

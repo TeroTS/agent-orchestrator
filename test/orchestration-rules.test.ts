@@ -5,19 +5,40 @@ import {
   computeRetryDelayMs,
   isIssueDispatchEligible,
   sortDispatchCandidates,
-  type OrchestrationIssue
+  type OrchestrationIssue,
 } from "../src/orchestration-rules.js";
 
 describe("sortDispatchCandidates", () => {
   it("sorts by priority, then oldest createdAt, then identifier", () => {
     const sorted = sortDispatchCandidates([
-      makeIssue({ identifier: "ABC-3", priority: null, createdAt: "2026-03-02T10:00:00.000Z" }),
-      makeIssue({ identifier: "ABC-2", priority: 2, createdAt: "2026-03-03T10:00:00.000Z" }),
-      makeIssue({ identifier: "ABC-1", priority: 2, createdAt: "2026-03-01T10:00:00.000Z" }),
-      makeIssue({ identifier: "ABC-0", priority: 1, createdAt: "2026-03-05T10:00:00.000Z" })
+      makeIssue({
+        identifier: "ABC-3",
+        priority: null,
+        createdAt: "2026-03-02T10:00:00.000Z",
+      }),
+      makeIssue({
+        identifier: "ABC-2",
+        priority: 2,
+        createdAt: "2026-03-03T10:00:00.000Z",
+      }),
+      makeIssue({
+        identifier: "ABC-1",
+        priority: 2,
+        createdAt: "2026-03-01T10:00:00.000Z",
+      }),
+      makeIssue({
+        identifier: "ABC-0",
+        priority: 1,
+        createdAt: "2026-03-05T10:00:00.000Z",
+      }),
     ]);
 
-    expect(sorted.map((issue) => issue.identifier)).toEqual(["ABC-0", "ABC-1", "ABC-2", "ABC-3"]);
+    expect(sorted.map((issue) => issue.identifier)).toEqual([
+      "ABC-0",
+      "ABC-1",
+      "ABC-2",
+      "ABC-3",
+    ]);
   });
 });
 
@@ -27,14 +48,16 @@ describe("isIssueDispatchEligible", () => {
       issue: makeIssue({
         identifier: "ABC-10",
         state: "Todo",
-        blockedBy: [{ id: "block-1", identifier: "ABC-9", state: "In Progress" }]
+        blockedBy: [
+          { id: "block-1", identifier: "ABC-9", state: "In Progress" },
+        ],
       }),
       activeStates: ["Todo", "In Progress"],
       terminalStates: ["Done", "Closed"],
       claimedIssueIds: new Set(),
       runningIssues: new Map(),
       maxConcurrentAgents: 5,
-      maxConcurrentAgentsByState: {}
+      maxConcurrentAgentsByState: {},
     });
 
     expect(eligible.ok).toBe(false);
@@ -49,14 +72,14 @@ describe("isIssueDispatchEligible", () => {
       issue: makeIssue({
         identifier: "ABC-11",
         state: "Todo",
-        blockedBy: [{ id: "block-1", identifier: "ABC-9", state: "Done" }]
+        blockedBy: [{ id: "block-1", identifier: "ABC-9", state: "Done" }],
       }),
       activeStates: ["Todo", "In Progress"],
       terminalStates: ["Done", "Closed"],
       claimedIssueIds: new Set(),
       runningIssues: new Map(),
       maxConcurrentAgents: 5,
-      maxConcurrentAgentsByState: {}
+      maxConcurrentAgentsByState: {},
     });
 
     expect(eligible).toEqual({ ok: true });
@@ -64,7 +87,14 @@ describe("isIssueDispatchEligible", () => {
 
   it("enforces per-state concurrency limits over the global fallback", () => {
     const runningIssues = new Map<string, OrchestrationIssue>([
-      ["in-progress-1", makeIssue({ id: "in-progress-1", identifier: "ABC-1", state: "In Progress" })]
+      [
+        "in-progress-1",
+        makeIssue({
+          id: "in-progress-1",
+          identifier: "ABC-1",
+          state: "In Progress",
+        }),
+      ],
     ]);
 
     const eligible = isIssueDispatchEligible({
@@ -75,8 +105,8 @@ describe("isIssueDispatchEligible", () => {
       runningIssues,
       maxConcurrentAgents: 10,
       maxConcurrentAgentsByState: {
-        "in progress": 1
-      }
+        "in progress": 1,
+      },
     });
 
     expect(eligible.ok).toBe(false);
@@ -89,13 +119,37 @@ describe("isIssueDispatchEligible", () => {
 
 describe("computeRetryDelayMs", () => {
   it("uses a fixed 1 second delay after normal worker exit", () => {
-    expect(computeRetryDelayMs({ attempt: 1, maxRetryBackoffMs: 300000, normalExit: true })).toBe(1000);
+    expect(
+      computeRetryDelayMs({
+        attempt: 1,
+        maxRetryBackoffMs: 300000,
+        normalExit: true,
+      }),
+    ).toBe(1000);
   });
 
   it("uses capped exponential backoff for failures", () => {
-    expect(computeRetryDelayMs({ attempt: 1, maxRetryBackoffMs: 300000, normalExit: false })).toBe(10000);
-    expect(computeRetryDelayMs({ attempt: 3, maxRetryBackoffMs: 300000, normalExit: false })).toBe(40000);
-    expect(computeRetryDelayMs({ attempt: 10, maxRetryBackoffMs: 60000, normalExit: false })).toBe(60000);
+    expect(
+      computeRetryDelayMs({
+        attempt: 1,
+        maxRetryBackoffMs: 300000,
+        normalExit: false,
+      }),
+    ).toBe(10000);
+    expect(
+      computeRetryDelayMs({
+        attempt: 3,
+        maxRetryBackoffMs: 300000,
+        normalExit: false,
+      }),
+    ).toBe(40000);
+    expect(
+      computeRetryDelayMs({
+        attempt: 10,
+        maxRetryBackoffMs: 60000,
+        normalExit: false,
+      }),
+    ).toBe(60000);
   });
 });
 
@@ -105,8 +159,8 @@ describe("computeReconciliationAction", () => {
       computeReconciliationAction({
         nextState: "In Progress",
         activeStates: ["Todo", "In Progress"],
-        terminalStates: ["Done", "Closed"]
-      })
+        terminalStates: ["Done", "Closed"],
+      }),
     ).toBe("update");
   });
 
@@ -115,8 +169,8 @@ describe("computeReconciliationAction", () => {
       computeReconciliationAction({
         nextState: "Done",
         activeStates: ["Todo", "In Progress"],
-        terminalStates: ["Done", "Closed"]
-      })
+        terminalStates: ["Done", "Closed"],
+      }),
     ).toBe("stop_and_cleanup");
   });
 
@@ -125,8 +179,8 @@ describe("computeReconciliationAction", () => {
       computeReconciliationAction({
         nextState: "Human Review",
         activeStates: ["Todo", "In Progress"],
-        terminalStates: ["Done", "Closed"]
-      })
+        terminalStates: ["Done", "Closed"],
+      }),
     ).toBe("stop_without_cleanup");
   });
 });
@@ -135,7 +189,7 @@ function makeIssue(
   overrides: Omit<Partial<OrchestrationIssue>, "createdAt" | "updatedAt"> & {
     createdAt?: Date | string | null;
     updatedAt?: Date | string | null;
-  } = {}
+  } = {},
 ): OrchestrationIssue {
   const identifier = overrides.identifier ?? "ABC-1";
   return {
@@ -143,7 +197,7 @@ function makeIssue(
     identifier,
     title: overrides.title ?? `Issue ${identifier}`,
     description: overrides.description ?? null,
-    priority: "priority" in overrides ? overrides.priority ?? null : 1,
+    priority: "priority" in overrides ? (overrides.priority ?? null) : 1,
     state: overrides.state ?? "Todo",
     branchName: overrides.branchName ?? null,
     url: overrides.url ?? null,
@@ -156,7 +210,7 @@ function makeIssue(
     updatedAt:
       "updatedAt" in overrides
         ? toDateOrNull(overrides.updatedAt)
-        : new Date("2026-03-01T10:00:00.000Z")
+        : new Date("2026-03-01T10:00:00.000Z"),
   };
 }
 

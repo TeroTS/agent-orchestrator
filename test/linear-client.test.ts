@@ -3,15 +3,14 @@ import { describe, expect, it, vi } from "vitest";
 import {
   LinearTrackerClient,
   type LinearIssue,
-  TrackerError
 } from "../src/tracker/linear-client.js";
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
     headers: {
-      "content-type": "application/json"
-    }
+      "content-type": "application/json",
+    },
   });
 }
 
@@ -25,18 +24,18 @@ describe("LinearTrackerClient", () => {
             issues: {
               pageInfo: {
                 hasNextPage: true,
-                endCursor: "cursor-1"
+                endCursor: "cursor-1",
               },
               nodes: [
                 makeLinearIssue({
                   id: "1",
                   identifier: "ABC-1",
-                  labels: ["Bug", "P1"]
-                })
-              ]
-            }
-          }
-        })
+                  labels: ["Bug", "P1"],
+                }),
+              ],
+            },
+          },
+        }),
       )
       .mockResolvedValueOnce(
         jsonResponse({
@@ -44,7 +43,7 @@ describe("LinearTrackerClient", () => {
             issues: {
               pageInfo: {
                 hasNextPage: false,
-                endCursor: null
+                endCursor: null,
               },
               nodes: [
                 makeLinearIssue({
@@ -57,23 +56,23 @@ describe("LinearTrackerClient", () => {
                         id: "block-1",
                         identifier: "ABC-0",
                         state: {
-                          name: "In Progress"
-                        }
-                      }
-                    }
-                  ]
-                })
-              ]
-            }
-          }
-        })
+                          name: "In Progress",
+                        },
+                      },
+                    },
+                  ],
+                }),
+              ],
+            },
+          },
+        }),
       );
 
     const client = new LinearTrackerClient({
       endpoint: "https://api.linear.app/graphql",
       apiKey: "linear-token",
       projectSlug: "demo-project",
-      fetchFn: fetchMock
+      fetchFn: fetchMock,
     });
 
     const issues = await client.fetchCandidateIssues(["Todo", "In Progress"]);
@@ -81,7 +80,7 @@ describe("LinearTrackerClient", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(fetchMock.mock.calls[0]?.[0]).toBe("https://api.linear.app/graphql");
     expect(fetchMock.mock.calls[0]?.[1]?.headers).toMatchObject({
-      Authorization: "linear-token"
+      Authorization: "linear-token",
     });
 
     const firstQuery = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
@@ -90,7 +89,7 @@ describe("LinearTrackerClient", () => {
       projectSlug: "demo-project",
       states: ["Todo", "In Progress"],
       first: 50,
-      after: null
+      after: null,
     });
 
     const secondQuery = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body));
@@ -100,7 +99,7 @@ describe("LinearTrackerClient", () => {
       expect.objectContaining({
         id: "1",
         identifier: "ABC-1",
-        labels: ["bug", "p1"]
+        labels: ["bug", "p1"],
       }),
       expect.objectContaining({
         id: "2",
@@ -109,10 +108,10 @@ describe("LinearTrackerClient", () => {
           {
             id: "block-1",
             identifier: "ABC-0",
-            state: "In Progress"
-          }
-        ]
-      })
+            state: "In Progress",
+          },
+        ],
+      }),
     ]);
   });
 
@@ -122,7 +121,7 @@ describe("LinearTrackerClient", () => {
       endpoint: "https://api.linear.app/graphql",
       apiKey: "linear-token",
       projectSlug: "demo-project",
-      fetchFn: fetchMock
+      fetchFn: fetchMock,
     });
 
     const issues = await client.fetchIssuesByStates([]);
@@ -141,19 +140,19 @@ describe("LinearTrackerClient", () => {
                 id: "issue-1",
                 identifier: "ABC-1",
                 title: "Refresh state",
-                state: { name: "Done" }
-              }
-            ]
-          }
-        }
-      })
+                state: { name: "Done" },
+              },
+            ],
+          },
+        },
+      }),
     );
 
     const client = new LinearTrackerClient({
       endpoint: "https://api.linear.app/graphql",
       apiKey: "linear-token",
       projectSlug: "demo-project",
-      fetchFn: fetchMock
+      fetchFn: fetchMock,
     });
 
     const issues = await client.fetchIssueStatesByIds(["issue-1"]);
@@ -174,8 +173,8 @@ describe("LinearTrackerClient", () => {
         labels: [],
         blockedBy: [],
         createdAt: null,
-        updatedAt: null
-      }
+        updatedAt: null,
+      },
     ]);
   });
 
@@ -184,44 +183,58 @@ describe("LinearTrackerClient", () => {
       endpoint: "https://api.linear.app/graphql",
       apiKey: "linear-token",
       projectSlug: "demo-project",
-      fetchFn: vi.fn().mockRejectedValue(new Error("socket closed"))
+      fetchFn: vi.fn().mockRejectedValue(new Error("socket closed")),
     });
 
-    await expect(transportClient.fetchCandidateIssues(["Todo"])).rejects.toMatchObject({
-      code: "linear_api_request"
+    await expect(
+      transportClient.fetchCandidateIssues(["Todo"]),
+    ).rejects.toMatchObject({
+      code: "linear_api_request",
     });
 
     const statusClient = new LinearTrackerClient({
       endpoint: "https://api.linear.app/graphql",
       apiKey: "linear-token",
       projectSlug: "demo-project",
-      fetchFn: vi.fn().mockResolvedValue(new Response("bad gateway", { status: 502 }))
+      fetchFn: vi
+        .fn()
+        .mockResolvedValue(new Response("bad gateway", { status: 502 })),
     });
 
-    await expect(statusClient.fetchCandidateIssues(["Todo"])).rejects.toMatchObject({
-      code: "linear_api_status"
+    await expect(
+      statusClient.fetchCandidateIssues(["Todo"]),
+    ).rejects.toMatchObject({
+      code: "linear_api_status",
     });
 
     const graphqlClient = new LinearTrackerClient({
       endpoint: "https://api.linear.app/graphql",
       apiKey: "linear-token",
       projectSlug: "demo-project",
-      fetchFn: vi.fn().mockResolvedValue(jsonResponse({ errors: [{ message: "broken" }] }))
+      fetchFn: vi
+        .fn()
+        .mockResolvedValue(jsonResponse({ errors: [{ message: "broken" }] })),
     });
 
-    await expect(graphqlClient.fetchCandidateIssues(["Todo"])).rejects.toMatchObject({
-      code: "linear_graphql_errors"
+    await expect(
+      graphqlClient.fetchCandidateIssues(["Todo"]),
+    ).rejects.toMatchObject({
+      code: "linear_graphql_errors",
     });
 
     const malformedClient = new LinearTrackerClient({
       endpoint: "https://api.linear.app/graphql",
       apiKey: "linear-token",
       projectSlug: "demo-project",
-      fetchFn: vi.fn().mockResolvedValue(jsonResponse({ data: { issues: { nope: [] } } }))
+      fetchFn: vi
+        .fn()
+        .mockResolvedValue(jsonResponse({ data: { issues: { nope: [] } } })),
     });
 
-    await expect(malformedClient.fetchCandidateIssues(["Todo"])).rejects.toMatchObject({
-      code: "linear_unknown_payload"
+    await expect(
+      malformedClient.fetchCandidateIssues(["Todo"]),
+    ).rejects.toMatchObject({
+      code: "linear_unknown_payload",
     });
   });
 
@@ -236,17 +249,17 @@ describe("LinearTrackerClient", () => {
             issues: {
               pageInfo: {
                 hasNextPage: true,
-                endCursor: null
+                endCursor: null,
               },
-              nodes: []
-            }
-          }
-        })
-      )
+              nodes: [],
+            },
+          },
+        }),
+      ),
     });
 
     await expect(client.fetchCandidateIssues(["Todo"])).rejects.toMatchObject({
-      code: "linear_missing_end_cursor"
+      code: "linear_missing_end_cursor",
     });
   });
 });
@@ -255,7 +268,7 @@ function makeLinearIssue({
   id,
   identifier,
   labels = [],
-  blockers = []
+  blockers = [],
 }: {
   id: string;
   identifier: string;
@@ -280,13 +293,13 @@ function makeLinearIssue({
     createdAt: "2026-03-01T10:00:00.000Z",
     updatedAt: "2026-03-01T12:00:00.000Z",
     state: {
-      name: "Todo"
+      name: "Todo",
     },
     labels: {
-      nodes: labels.map((name) => ({ name }))
+      nodes: labels.map((name) => ({ name })),
     },
     inverseRelations: {
-      nodes: blockers
-    }
+      nodes: blockers,
+    },
   };
 }

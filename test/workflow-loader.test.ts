@@ -7,18 +7,23 @@ import {
   loadWorkflowDefinition,
   renderPromptTemplate,
   validateWorkflowForDispatch,
-  type WorkflowDefinition
+  type WorkflowDefinition,
 } from "../src/workflow-loader.js";
 
 const tempDirs: string[] = [];
 
 afterEach(async () => {
-  await Promise.all(tempDirs.map((dir) => rm(dir, { recursive: true, force: true })));
+  await Promise.all(
+    tempDirs.map((dir) => rm(dir, { recursive: true, force: true })),
+  );
   tempDirs.length = 0;
   delete process.env.LINEAR_API_KEY;
 });
 
-async function withWorkflowFile(contents: string, filename = "WORKFLOW.md"): Promise<string> {
+async function withWorkflowFile(
+  contents: string,
+  filename = "WORKFLOW.md",
+): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), "workflow-loader-test-"));
   tempDirs.push(dir);
   const filePath = join(dir, filename);
@@ -45,13 +50,13 @@ You are working on {{ issue.identifier }}.
       config: {
         tracker: {
           kind: "linear",
-          project_slug: "demo"
+          project_slug: "demo",
         },
         polling: {
-          interval_ms: "1500"
-        }
+          interval_ms: "1500",
+        },
       },
-      promptTemplate: "You are working on {{ issue.identifier }}."
+      promptTemplate: "You are working on {{ issue.identifier }}.",
     });
   });
 
@@ -66,9 +71,11 @@ You are working on {{ issue.identifier }}.
 
   it("fails when the workflow file is missing", async () => {
     await expect(
-      loadWorkflowDefinition({ workflowPath: join(tmpdir(), "missing-workflow.md") })
+      loadWorkflowDefinition({
+        workflowPath: join(tmpdir(), "missing-workflow.md"),
+      }),
     ).rejects.toMatchObject({
-      code: "missing_workflow_file"
+      code: "missing_workflow_file",
     });
   });
 
@@ -80,8 +87,10 @@ You are working on {{ issue.identifier }}.
 ---
 body`);
 
-    await expect(loadWorkflowDefinition({ workflowPath })).rejects.toMatchObject({
-      code: "workflow_front_matter_not_a_map"
+    await expect(
+      loadWorkflowDefinition({ workflowPath }),
+    ).rejects.toMatchObject({
+      code: "workflow_front_matter_not_a_map",
     });
   });
 
@@ -92,8 +101,10 @@ tracker:
 ---
 body`);
 
-    await expect(loadWorkflowDefinition({ workflowPath })).rejects.toMatchObject({
-      code: "workflow_parse_error"
+    await expect(
+      loadWorkflowDefinition({ workflowPath }),
+    ).rejects.toMatchObject({
+      code: "workflow_parse_error",
     });
   });
 });
@@ -107,10 +118,10 @@ describe("validateWorkflowForDispatch", () => {
         tracker: {
           kind: "linear",
           project_slug: "demo",
-          api_key: "$LINEAR_API_KEY"
-        }
+          api_key: "$LINEAR_API_KEY",
+        },
       },
-      promptTemplate: "Prompt"
+      promptTemplate: "Prompt",
     });
 
     expect(validation.ok).toBe(true);
@@ -119,7 +130,9 @@ describe("validateWorkflowForDispatch", () => {
     }
 
     expect(validation.config.tracker.apiKey).toBe("linear-secret");
-    expect(validation.config.tracker.endpoint).toBe("https://api.linear.app/graphql");
+    expect(validation.config.tracker.endpoint).toBe(
+      "https://api.linear.app/graphql",
+    );
     expect(validation.config.polling.intervalMs).toBe(30000);
     expect(validation.config.workspace.root).toContain("symphony_workspaces");
     expect(validation.config.codex.command).toBe("codex app-server");
@@ -129,18 +142,18 @@ describe("validateWorkflowForDispatch", () => {
     const validation = validateWorkflowForDispatch({
       config: {
         tracker: {
-          kind: "linear"
-        }
+          kind: "linear",
+        },
       },
-      promptTemplate: "Prompt"
+      promptTemplate: "Prompt",
     });
 
     expect(validation).toMatchObject({
       ok: false,
       errors: [
         "tracker.api_key is required",
-        "tracker.project_slug is required"
-      ]
+        "tracker.project_slug is required",
+      ],
     });
   });
 });
@@ -150,14 +163,14 @@ describe("renderPromptTemplate", () => {
     const rendered = await renderPromptTemplate(
       {
         config: {},
-        promptTemplate: "Issue {{ issue.identifier }} attempt {{ attempt }}"
+        promptTemplate: "Issue {{ issue.identifier }} attempt {{ attempt }}",
       },
       {
         issue: {
-          identifier: "ABC-123"
+          identifier: "ABC-123",
         },
-        attempt: 2
-      }
+        attempt: 2,
+      },
     );
 
     expect(rendered).toBe("Issue ABC-123 attempt 2");
@@ -168,16 +181,16 @@ describe("renderPromptTemplate", () => {
       renderPromptTemplate(
         {
           config: {},
-          promptTemplate: "Missing {{ issue.unknown_field }}"
+          promptTemplate: "Missing {{ issue.unknown_field }}",
         },
         {
           issue: {
-            identifier: "ABC-123"
-          }
-        }
-      )
+            identifier: "ABC-123",
+          },
+        },
+      ),
     ).rejects.toMatchObject({
-      code: "template_render_error"
+      code: "template_render_error",
     });
   });
 
@@ -186,16 +199,16 @@ describe("renderPromptTemplate", () => {
       renderPromptTemplate(
         {
           config: {},
-          promptTemplate: "{% if issue.identifier %}"
+          promptTemplate: "{% if issue.identifier %}",
         },
         {
           issue: {
-            identifier: "ABC-123"
-          }
-        }
-      )
+            identifier: "ABC-123",
+          },
+        },
+      ),
     ).rejects.toMatchObject({
-      code: "template_parse_error"
+      code: "template_parse_error",
     });
   });
 });

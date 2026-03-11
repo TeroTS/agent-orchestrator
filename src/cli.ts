@@ -7,7 +7,10 @@ export interface CliService {
 
 export interface RunCliOptions {
   cwd: string;
-  createService: (input: { workflowPath: string; port?: number }) => Promise<CliService>;
+  createService: (input: {
+    workflowPath: string;
+    port?: number;
+  }) => Promise<CliService>;
   stderr?: (message: string) => void;
 }
 
@@ -16,13 +19,21 @@ export interface StartCliResult {
   service?: CliService;
 }
 
-export async function runCli(argv: string[], options: RunCliOptions): Promise<number> {
+export async function runCli(
+  argv: string[],
+  options: RunCliOptions,
+): Promise<number> {
   const started = await startCli(argv, options);
   return started.exitCode;
 }
 
-export async function startCli(argv: string[], options: RunCliOptions): Promise<StartCliResult> {
-  const stderr = options.stderr ?? ((message: string) => process.stderr.write(`${message}\n`));
+export async function startCli(
+  argv: string[],
+  options: RunCliOptions,
+): Promise<StartCliResult> {
+  const stderr =
+    options.stderr ??
+    ((message: string) => process.stderr.write(`${message}\n`));
   const parsed = parseCliArgs(argv, options.cwd);
   if (!parsed.ok) {
     stderr(parsed.error);
@@ -33,12 +44,12 @@ export async function startCli(argv: string[], options: RunCliOptions): Promise<
     const service = await options.createService(
       parsed.port == null
         ? { workflowPath: parsed.workflowPath }
-        : { workflowPath: parsed.workflowPath, port: parsed.port }
+        : { workflowPath: parsed.workflowPath, port: parsed.port },
     );
     await service.start();
     return {
       exitCode: 0,
-      service
+      service,
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -49,8 +60,10 @@ export async function startCli(argv: string[], options: RunCliOptions): Promise<
 
 function parseCliArgs(
   argv: string[],
-  cwd: string
-): { ok: true; workflowPath: string; port?: number } | { ok: false; error: string } {
+  cwd: string,
+):
+  | { ok: true; workflowPath: string; port?: number }
+  | { ok: false; error: string } {
   let port: number | undefined;
   let workflowPath: string | undefined;
 
@@ -96,12 +109,12 @@ function parseCliArgs(
   return port == null
     ? {
         ok: true,
-        workflowPath: workflowPath ?? resolve(cwd, "WORKFLOW.md")
+        workflowPath: workflowPath ?? resolve(cwd, "WORKFLOW.md"),
       }
     : {
         ok: true,
         workflowPath: workflowPath ?? resolve(cwd, "WORKFLOW.md"),
-        port
+        port,
       };
 }
 

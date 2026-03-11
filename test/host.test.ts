@@ -14,7 +14,7 @@ describe("runHost", () => {
     const exitPromise = runHost([], {
       cwd: "/repo",
       createService,
-      signals
+      signals,
     });
 
     await vi.waitFor(() => {
@@ -33,14 +33,14 @@ describe("runHost", () => {
     const start = vi.fn().mockResolvedValue(undefined);
     const createService = vi.fn().mockResolvedValue({
       start,
-      stop: vi.fn().mockRejectedValue(new Error("stop failed"))
+      stop: vi.fn().mockRejectedValue(new Error("stop failed")),
     });
 
     const exitPromise = runHost([], {
       cwd: "/repo",
       createService,
       stderr,
-      signals
+      signals,
     });
 
     await vi.waitFor(() => {

@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it } from "vitest";
@@ -9,7 +9,9 @@ import { WorkflowStore } from "../src/workflow-store.js";
 const tempDirs: string[] = [];
 
 afterEach(async () => {
-  await Promise.all(tempDirs.map((dir) => rm(dir, { recursive: true, force: true })));
+  await Promise.all(
+    tempDirs.map((dir) => rm(dir, { recursive: true, force: true })),
+  );
   tempDirs.length = 0;
 });
 
@@ -44,7 +46,7 @@ tracker:
   project_slug: demo
 ---
 Initial prompt`,
-      "utf8"
+      "utf8",
     );
 
     const store = new WorkflowStore({ workflowPath });
@@ -58,7 +60,7 @@ tracker:
   kind: [broken
 ---
 Invalid prompt`,
-      "utf8"
+      "utf8",
     );
 
     const reload = await store.reload();
@@ -75,7 +77,11 @@ Invalid prompt`,
     const store = new WorkflowStore({ workflowPath });
     await store.load();
 
-    await writeFile(workflowPath, "---\ntracker:\n  kind: [broken\n---\nPrompt bad", "utf8");
+    await writeFile(
+      workflowPath,
+      "---\ntracker:\n  kind: [broken\n---\nPrompt bad",
+      "utf8",
+    );
     await store.reload();
 
     await writeFile(workflowPath, "Prompt B", "utf8");

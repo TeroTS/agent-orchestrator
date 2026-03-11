@@ -19,41 +19,55 @@ describe("SymphonyOrchestrator", () => {
       workflowStore: fakeWorkflowStore({
         config: {
           tracker: {
-            kind: "linear"
-          }
+            kind: "linear",
+          },
         },
-        promptTemplate: "Prompt"
+        promptTemplate: "Prompt",
       }),
       tracker: fakeTracker(),
       runner: fakeRunner(),
       removeWorkspace: vi.fn(),
-      logger: silentLogger()
+      logger: silentLogger(),
     });
 
-    await expect(orchestrator.start()).rejects.toThrow(/tracker.api_key is required/);
+    await expect(orchestrator.start()).rejects.toThrow(
+      /tracker.api_key is required/,
+    );
   });
 
   it("cleans terminal workspaces on startup and dispatches eligible issues on tick", async () => {
-    const terminalIssue = makeIssue({ id: "done-1", identifier: "DONE-1", state: "Done" });
-    const todoA = makeIssue({ id: "todo-2", identifier: "TODO-2", priority: 2 });
-    const todoB = makeIssue({ id: "todo-1", identifier: "TODO-1", priority: 1 });
+    const terminalIssue = makeIssue({
+      id: "done-1",
+      identifier: "DONE-1",
+      state: "Done",
+    });
+    const todoA = makeIssue({
+      id: "todo-2",
+      identifier: "TODO-2",
+      priority: 2,
+    });
+    const todoB = makeIssue({
+      id: "todo-1",
+      identifier: "TODO-1",
+      priority: 1,
+    });
     const removeWorkspace = vi.fn().mockResolvedValue(undefined);
     const startRun = vi.fn().mockImplementation(() => ({
       cancel: vi.fn(),
-      promise: new Promise(() => {})
+      promise: new Promise(() => {}),
     }));
 
     const orchestrator = new SymphonyOrchestrator({
       workflowStore: fakeWorkflowStore(validWorkflowDefinition()),
       tracker: fakeTracker({
         fetchIssuesByStates: vi.fn().mockResolvedValue([terminalIssue]),
-        fetchCandidateIssues: vi.fn().mockResolvedValue([todoA, todoB])
+        fetchCandidateIssues: vi.fn().mockResolvedValue([todoA, todoB]),
       }),
       runner: {
-        startRun
+        startRun,
       },
       removeWorkspace,
-      logger: silentLogger()
+      logger: silentLogger(),
     });
 
     await orchestrator.start();
@@ -61,7 +75,9 @@ describe("SymphonyOrchestrator", () => {
 
     expect(removeWorkspace).toHaveBeenCalledTimes(1);
     expect(removeWorkspace.mock.calls[0]?.[0]).toContain("DONE-1");
-    expect(startRun.mock.calls.map((call) => call[0].issue.identifier)).toEqual(["TODO-1", "TODO-2"]);
+    expect(startRun.mock.calls.map((call) => call[0].issue.identifier)).toEqual(
+      ["TODO-1", "TODO-2"],
+    );
   });
 
   it("reconciles terminal issues by cancelling the run and cleaning the workspace", async () => {
@@ -72,9 +88,11 @@ describe("SymphonyOrchestrator", () => {
 
     const tracker = fakeTracker({
       fetchCandidateIssues: vi.fn().mockResolvedValue([]),
-      fetchIssueStatesByIds: vi.fn().mockResolvedValue([
-        makeIssue({ id: "issue-1", identifier: "ABC-1", state: "Done" })
-      ])
+      fetchIssueStatesByIds: vi
+        .fn()
+        .mockResolvedValue([
+          makeIssue({ id: "issue-1", identifier: "ABC-1", state: "Done" }),
+        ]),
     });
 
     const removeWorkspace = vi.fn().mockResolvedValue(undefined);
@@ -84,15 +102,18 @@ describe("SymphonyOrchestrator", () => {
       runner: {
         startRun: vi.fn().mockReturnValue({
           cancel,
-          promise: runPromise
-        })
+          promise: runPromise,
+        }),
       },
       removeWorkspace,
-      logger: silentLogger()
+      logger: silentLogger(),
     });
 
     await orchestrator.start();
-    await orchestrator.dispatchNow(makeIssue({ id: "issue-1", identifier: "ABC-1", state: "In Progress" }), null);
+    await orchestrator.dispatchNow(
+      makeIssue({ id: "issue-1", identifier: "ABC-1", state: "In Progress" }),
+      null,
+    );
     await orchestrator.tick();
 
     expect(cancel).toHaveBeenCalledTimes(1);
@@ -105,23 +126,30 @@ describe("SymphonyOrchestrator", () => {
       workflowStore: fakeWorkflowStore(validWorkflowDefinition()),
       tracker: fakeTracker({
         fetchCandidateIssues: vi.fn().mockResolvedValue([
-          makeIssue({ id: "issue-1", identifier: "ABC-1", state: "In Progress" })
-        ])
+          makeIssue({
+            id: "issue-1",
+            identifier: "ABC-1",
+            state: "In Progress",
+          }),
+        ]),
       }),
       runner: {
         startRun: vi.fn().mockReturnValue({
           cancel: vi.fn(),
           promise: new Promise((resolve) => {
             resolveRun = resolve;
-          })
-        })
+          }),
+        }),
       },
       removeWorkspace: vi.fn(),
-      logger: silentLogger()
+      logger: silentLogger(),
     });
 
     await orchestrator.start();
-    await orchestrator.dispatchNow(makeIssue({ id: "issue-1", identifier: "ABC-1", state: "In Progress" }), null);
+    await orchestrator.dispatchNow(
+      makeIssue({ id: "issue-1", identifier: "ABC-1", state: "In Progress" }),
+      null,
+    );
     resolveRun?.({ reason: "normal" });
     await Promise.resolve();
 
@@ -129,7 +157,7 @@ describe("SymphonyOrchestrator", () => {
     expect(snapshot.retries).toHaveLength(1);
     expect(snapshot.retries[0]).toMatchObject({
       issueId: "issue-1",
-      attempt: 1
+      attempt: 1,
     });
   });
 
@@ -138,31 +166,38 @@ describe("SymphonyOrchestrator", () => {
       .fn()
       .mockReturnValueOnce({
         cancel: vi.fn(),
-        promise: Promise.resolve({ reason: "normal" })
+        promise: Promise.resolve({ reason: "normal" }),
       })
       .mockReturnValueOnce({
         cancel: vi.fn(),
-        promise: Promise.resolve({ reason: "normal" })
+        promise: Promise.resolve({ reason: "normal" }),
       });
 
     const tracker = fakeTracker({
       fetchCandidateIssues: vi.fn().mockResolvedValue([
-        makeIssue({ id: "issue-1", identifier: "ABC-1", state: "In Progress" })
-      ])
+        makeIssue({
+          id: "issue-1",
+          identifier: "ABC-1",
+          state: "In Progress",
+        }),
+      ]),
     });
 
     const orchestrator = new SymphonyOrchestrator({
       workflowStore: fakeWorkflowStore(validWorkflowDefinition()),
       tracker,
       runner: {
-        startRun
+        startRun,
       },
       removeWorkspace: vi.fn(),
-      logger: silentLogger()
+      logger: silentLogger(),
     });
 
     await orchestrator.start();
-    await orchestrator.dispatchNow(makeIssue({ id: "issue-1", identifier: "ABC-1", state: "In Progress" }), null);
+    await orchestrator.dispatchNow(
+      makeIssue({ id: "issue-1", identifier: "ABC-1", state: "In Progress" }),
+      null,
+    );
     await Promise.resolve();
 
     await vi.advanceTimersByTimeAsync(1000);
@@ -171,46 +206,53 @@ describe("SymphonyOrchestrator", () => {
   });
 
   it("tracks live session metadata from runner events in the runtime snapshot", async () => {
-    const startRun = vi.fn().mockImplementation(({ onEvent }: { onEvent?: (event: any) => void }) => {
-      queueMicrotask(() => {
-        onEvent?.({
-          event: "session_started",
-          timestamp: "2026-03-12T00:00:00.000Z",
-          sessionId: "thread-1-turn-1",
-          codexAppServerPid: 1234,
-          payload: {
-            threadId: "thread-1",
-            turnId: "turn-1"
-          }
-        });
-        onEvent?.({
-          event: "notification",
-          timestamp: "2026-03-12T00:00:01.000Z",
-          message: "Working on tests",
-          payload: {
-            message: "Working on tests"
-          }
-        });
-      });
+    const startRun = vi
+      .fn()
+      .mockImplementation(
+        ({ onEvent }: { onEvent?: (event: unknown) => void }) => {
+          queueMicrotask(() => {
+            onEvent?.({
+              event: "session_started",
+              timestamp: "2026-03-12T00:00:00.000Z",
+              sessionId: "thread-1-turn-1",
+              codexAppServerPid: 1234,
+              payload: {
+                threadId: "thread-1",
+                turnId: "turn-1",
+              },
+            });
+            onEvent?.({
+              event: "notification",
+              timestamp: "2026-03-12T00:00:01.000Z",
+              message: "Working on tests",
+              payload: {
+                message: "Working on tests",
+              },
+            });
+          });
 
-      return {
-        cancel: vi.fn(),
-        promise: new Promise(() => {})
-      };
-    });
+          return {
+            cancel: vi.fn(),
+            promise: new Promise(() => {}),
+          };
+        },
+      );
 
     const orchestrator = new SymphonyOrchestrator({
       workflowStore: fakeWorkflowStore(validWorkflowDefinition()),
       tracker: fakeTracker(),
       runner: {
-        startRun
+        startRun,
       },
       removeWorkspace: vi.fn(),
-      logger: silentLogger()
+      logger: silentLogger(),
     });
 
     await orchestrator.start();
-    await orchestrator.dispatchNow(makeIssue({ id: "issue-1", identifier: "ABC-1", state: "In Progress" }), null);
+    await orchestrator.dispatchNow(
+      makeIssue({ id: "issue-1", identifier: "ABC-1", state: "In Progress" }),
+      null,
+    );
     await Promise.resolve();
 
     expect(orchestrator.snapshot().running).toEqual([
@@ -224,8 +266,8 @@ describe("SymphonyOrchestrator", () => {
         turnCount: 1,
         lastCodexEvent: "notification",
         lastCodexMessage: "Working on tests",
-        lastCodexTimestamp: "2026-03-12T00:00:01.000Z"
-      })
+        lastCodexTimestamp: "2026-03-12T00:00:01.000Z",
+      }),
     ]);
   });
 
@@ -235,25 +277,28 @@ describe("SymphonyOrchestrator", () => {
       workflowStore: fakeWorkflowStore(
         validWorkflowDefinition({
           codex: {
-            stall_timeout_ms: 1000
-          }
-        })
+            stall_timeout_ms: 1000,
+          },
+        }),
       ),
       tracker: fakeTracker({
-        fetchIssueStatesByIds: vi.fn().mockResolvedValue([])
+        fetchIssueStatesByIds: vi.fn().mockResolvedValue([]),
       }),
       runner: {
         startRun: vi.fn().mockReturnValue({
           cancel,
-          promise: new Promise(() => {})
-        })
+          promise: new Promise(() => {}),
+        }),
       },
       removeWorkspace: vi.fn(),
-      logger: silentLogger()
+      logger: silentLogger(),
     });
 
     await orchestrator.start();
-    await orchestrator.dispatchNow(makeIssue({ id: "issue-1", identifier: "ABC-1", state: "In Progress" }), null);
+    await orchestrator.dispatchNow(
+      makeIssue({ id: "issue-1", identifier: "ABC-1", state: "In Progress" }),
+      null,
+    );
     await vi.advanceTimersByTimeAsync(1001);
 
     await orchestrator.tick();
@@ -263,14 +308,16 @@ describe("SymphonyOrchestrator", () => {
     expect(orchestrator.snapshot().retries).toEqual([
       expect.objectContaining({
         issueId: "issue-1",
-        error: "stalled session"
-      })
+        error: "stalled session",
+      }),
     ]);
   });
 
   it("keeps running workers alive when reconciliation refresh fails", async () => {
     const tracker = fakeTracker({
-      fetchIssueStatesByIds: vi.fn().mockRejectedValue(new Error("tracker down"))
+      fetchIssueStatesByIds: vi
+        .fn()
+        .mockRejectedValue(new Error("tracker down")),
     });
     const orchestrator = new SymphonyOrchestrator({
       workflowStore: fakeWorkflowStore(validWorkflowDefinition()),
@@ -278,15 +325,18 @@ describe("SymphonyOrchestrator", () => {
       runner: {
         startRun: vi.fn().mockReturnValue({
           cancel: vi.fn(),
-          promise: new Promise(() => {})
-        })
+          promise: new Promise(() => {}),
+        }),
       },
       removeWorkspace: vi.fn(),
-      logger: silentLogger()
+      logger: silentLogger(),
     });
 
     await orchestrator.start();
-    await orchestrator.dispatchNow(makeIssue({ id: "issue-1", identifier: "ABC-1", state: "In Progress" }), null);
+    await orchestrator.dispatchNow(
+      makeIssue({ id: "issue-1", identifier: "ABC-1", state: "In Progress" }),
+      null,
+    );
 
     await expect(orchestrator.tick()).resolves.toBeUndefined();
     expect(orchestrator.snapshot().running).toHaveLength(1);
@@ -297,10 +347,10 @@ describe("SymphonyOrchestrator", () => {
     const invalidDefinition: WorkflowDefinition = {
       config: {
         tracker: {
-          kind: "linear"
-        }
+          kind: "linear",
+        },
       },
-      promptTemplate: "Prompt"
+      promptTemplate: "Prompt",
     };
     const workflowStore = {
       load: vi.fn().mockResolvedValue({ current: validWorkflowDefinition() }),
@@ -308,27 +358,29 @@ describe("SymphonyOrchestrator", () => {
       reload: vi
         .fn()
         .mockResolvedValueOnce({ ok: true, current: validWorkflowDefinition() })
-        .mockResolvedValueOnce({ ok: true, current: invalidDefinition })
+        .mockResolvedValueOnce({ ok: true, current: invalidDefinition }),
     };
     const tracker = fakeTracker({
       fetchCandidateIssues: vi
         .fn()
         .mockRejectedValueOnce(new Error("candidate fetch failed"))
-        .mockResolvedValueOnce([makeIssue({ id: "issue-1", identifier: "ABC-1", state: "Todo" })])
+        .mockResolvedValueOnce([
+          makeIssue({ id: "issue-1", identifier: "ABC-1", state: "Todo" }),
+        ]),
     });
     const startRun = vi.fn().mockReturnValue({
       cancel: vi.fn(),
-      promise: new Promise(() => {})
+      promise: new Promise(() => {}),
     });
 
     const orchestrator = new SymphonyOrchestrator({
       workflowStore,
       tracker,
       runner: {
-        startRun
+        startRun,
       },
       removeWorkspace: vi.fn(),
-      logger
+      logger,
     });
 
     await orchestrator.start();
@@ -339,14 +391,14 @@ describe("SymphonyOrchestrator", () => {
     expect(logger.warn).toHaveBeenCalledWith(
       "candidate fetch failed",
       expect.objectContaining({
-        reason: "candidate fetch failed"
-      })
+        reason: "candidate fetch failed",
+      }),
     );
     expect(logger.error).toHaveBeenCalledWith(
       "workflow reload validation failed",
       expect.objectContaining({
-        reason: expect.stringContaining("tracker.api_key is required")
-      })
+        reason: expect.stringContaining("tracker.api_key is required"),
+      }),
     );
   });
 
@@ -355,42 +407,44 @@ describe("SymphonyOrchestrator", () => {
     const orchestrator = new SymphonyOrchestrator({
       workflowStore: fakeWorkflowStore(validWorkflowDefinition()),
       tracker: fakeTracker({
-        fetchIssuesByStates: vi.fn().mockRejectedValue(new Error("cleanup unavailable"))
+        fetchIssuesByStates: vi
+          .fn()
+          .mockRejectedValue(new Error("cleanup unavailable")),
       }),
       runner: fakeRunner(),
       removeWorkspace: vi.fn(),
-      logger
+      logger,
     });
 
     await expect(orchestrator.start()).resolves.toBeUndefined();
     expect(logger.warn).toHaveBeenCalledWith(
       "startup terminal cleanup failed",
       expect.objectContaining({
-        reason: "cleanup unavailable"
-      })
+        reason: "cleanup unavailable",
+      }),
     );
   });
 });
 
 function validWorkflowDefinition(
-  configOverrides: Partial<WorkflowDefinition["config"]> = {}
+  configOverrides: Partial<WorkflowDefinition["config"]> = {},
 ): WorkflowDefinition {
   return {
     config: {
       tracker: {
         kind: "linear",
         api_key: "token",
-        project_slug: "demo"
+        project_slug: "demo",
       },
       polling: {
-        interval_ms: 30000
+        interval_ms: 30000,
       },
       workspace: {
-        root: "/tmp/symphony-test"
+        root: "/tmp/symphony-test",
       },
-      ...configOverrides
+      ...configOverrides,
     },
-    promptTemplate: "Prompt {{ issue.identifier }}"
+    promptTemplate: "Prompt {{ issue.identifier }}",
   };
 }
 
@@ -398,14 +452,14 @@ function fakeWorkflowStore(definition: WorkflowDefinition) {
   return {
     load: vi.fn().mockResolvedValue({ current: definition }),
     current: vi.fn().mockReturnValue(definition),
-    reload: vi.fn().mockResolvedValue({ ok: true, current: definition })
+    reload: vi.fn().mockResolvedValue({ ok: true, current: definition }),
   };
 }
 
 function fakeTracker(overrides: Partial<ReturnType<typeof baseTracker>> = {}) {
   return {
     ...baseTracker(),
-    ...overrides
+    ...overrides,
   };
 }
 
@@ -413,7 +467,7 @@ function baseTracker() {
   return {
     fetchCandidateIssues: vi.fn().mockResolvedValue([]),
     fetchIssuesByStates: vi.fn().mockResolvedValue([]),
-    fetchIssueStatesByIds: vi.fn().mockResolvedValue([])
+    fetchIssueStatesByIds: vi.fn().mockResolvedValue([]),
   };
 }
 
@@ -421,32 +475,34 @@ function fakeRunner() {
   return {
     startRun: vi.fn().mockReturnValue({
       cancel: vi.fn(),
-      promise: Promise.resolve({ reason: "normal" })
-    })
+      promise: Promise.resolve({ reason: "normal" }),
+    }),
   };
 }
 
-function makeIssue(overrides: Partial<OrchestrationIssue> = {}): OrchestrationIssue {
+function makeIssue(
+  overrides: Partial<OrchestrationIssue> = {},
+): OrchestrationIssue {
   const identifier = overrides.identifier ?? "ABC-1";
   return {
     id: overrides.id ?? identifier.toLowerCase(),
     identifier,
     title: overrides.title ?? `Issue ${identifier}`,
     description: overrides.description ?? null,
-    priority: "priority" in overrides ? overrides.priority ?? null : 1,
+    priority: "priority" in overrides ? (overrides.priority ?? null) : 1,
     state: overrides.state ?? "Todo",
     branchName: overrides.branchName ?? null,
     url: overrides.url ?? null,
     labels: overrides.labels ?? [],
     blockedBy: overrides.blockedBy ?? [],
     createdAt: overrides.createdAt ?? new Date("2026-03-01T10:00:00.000Z"),
-    updatedAt: overrides.updatedAt ?? new Date("2026-03-01T10:00:00.000Z")
+    updatedAt: overrides.updatedAt ?? new Date("2026-03-01T10:00:00.000Z"),
   };
 }
 
 function silentLogger() {
   return createStructuredLogger({
-    write: () => {}
+    write: () => {},
   });
 }
 
@@ -455,6 +511,6 @@ function spyLogger() {
     debug: vi.fn(),
     info: vi.fn(),
     warn: vi.fn(),
-    error: vi.fn()
+    error: vi.fn(),
   };
 }

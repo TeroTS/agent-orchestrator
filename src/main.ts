@@ -3,7 +3,7 @@ import { createService } from "./service.js";
 
 const exitCode = await runHost(process.argv.slice(2), {
   cwd: process.cwd(),
-  createService
+  createService,
 });
 
 process.exitCode = exitCode;

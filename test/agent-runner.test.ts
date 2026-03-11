@@ -10,13 +10,17 @@ import type { OrchestrationIssue } from "../src/orchestration-rules.js";
 const tempDirs: string[] = [];
 
 afterEach(async () => {
-  await Promise.all(tempDirs.map((dir) => rm(dir, { recursive: true, force: true })));
+  await Promise.all(
+    tempDirs.map((dir) => rm(dir, { recursive: true, force: true })),
+  );
   tempDirs.length = 0;
 });
 
 describe("AgentRunner", () => {
   it("creates a workspace, runs a turn, refreshes tracker state, and stops when the issue becomes terminal", async () => {
-    const workspaceRoot = await mkdtemp(join(tmpdir(), "agent-runner-workspace-"));
+    const workspaceRoot = await mkdtemp(
+      join(tmpdir(), "agent-runner-workspace-"),
+    );
     tempDirs.push(workspaceRoot);
     const appServerDir = await mkdtemp(join(tmpdir(), "agent-runner-server-"));
     tempDirs.push(appServerDir);
@@ -56,25 +60,33 @@ rl.on("line", async (line) => {
   }
 });
 `,
-      "utf8"
+      "utf8",
     );
 
     const tracker = {
       fetchIssueStatesByIds: vi
         .fn()
         .mockResolvedValueOnce([
-          makeIssue({ id: "issue-1", identifier: "ABC-1", state: "Done" })
-        ])
+          makeIssue({ id: "issue-1", identifier: "ABC-1", state: "Done" }),
+        ]),
     };
 
     const runner = new AgentRunner({
-      workflowDefinition: validWorkflowDefinition(workspaceRoot, `${process.execPath} ${scriptPath}`, promptLogPath),
-      issueStateRefresher: tracker.fetchIssueStatesByIds
+      workflowDefinition: validWorkflowDefinition(
+        workspaceRoot,
+        `${process.execPath} ${scriptPath}`,
+        promptLogPath,
+      ),
+      issueStateRefresher: tracker.fetchIssueStatesByIds,
     });
 
     const result = await runner.runAttempt({
-      issue: makeIssue({ id: "issue-1", identifier: "ABC-1", state: "In Progress" }),
-      attempt: null
+      issue: makeIssue({
+        id: "issue-1",
+        identifier: "ABC-1",
+        state: "In Progress",
+      }),
+      attempt: null,
     });
 
     expect(result).toEqual({ reason: "normal" });
@@ -87,7 +99,9 @@ rl.on("line", async (line) => {
   });
 
   it("runs continuation turns while the issue remains active and max_turns is not exhausted", async () => {
-    const workspaceRoot = await mkdtemp(join(tmpdir(), "agent-runner-workspace-"));
+    const workspaceRoot = await mkdtemp(
+      join(tmpdir(), "agent-runner-workspace-"),
+    );
     tempDirs.push(workspaceRoot);
     const appServerDir = await mkdtemp(join(tmpdir(), "agent-runner-server-"));
     tempDirs.push(appServerDir);
@@ -127,28 +141,41 @@ rl.on("line", async (line) => {
   }
 });
 `,
-      "utf8"
+      "utf8",
     );
 
     const tracker = {
       fetchIssueStatesByIds: vi
         .fn()
         .mockResolvedValueOnce([
-          makeIssue({ id: "issue-1", identifier: "ABC-1", state: "In Progress" })
+          makeIssue({
+            id: "issue-1",
+            identifier: "ABC-1",
+            state: "In Progress",
+          }),
         ])
         .mockResolvedValueOnce([
-          makeIssue({ id: "issue-1", identifier: "ABC-1", state: "Done" })
-        ])
+          makeIssue({ id: "issue-1", identifier: "ABC-1", state: "Done" }),
+        ]),
     };
 
     const runner = new AgentRunner({
-      workflowDefinition: validWorkflowDefinition(workspaceRoot, `${process.execPath} ${scriptPath}`, promptLogPath, 3),
-      issueStateRefresher: tracker.fetchIssueStatesByIds
+      workflowDefinition: validWorkflowDefinition(
+        workspaceRoot,
+        `${process.execPath} ${scriptPath}`,
+        promptLogPath,
+        3,
+      ),
+      issueStateRefresher: tracker.fetchIssueStatesByIds,
     });
 
     const result = await runner.runAttempt({
-      issue: makeIssue({ id: "issue-1", identifier: "ABC-1", state: "In Progress" }),
-      attempt: 1
+      issue: makeIssue({
+        id: "issue-1",
+        identifier: "ABC-1",
+        state: "In Progress",
+      }),
+      attempt: 1,
     });
 
     expect(result).toEqual({ reason: "normal" });
@@ -160,7 +187,9 @@ rl.on("line", async (line) => {
   });
 
   it("logs run attempt lifecycle events", async () => {
-    const workspaceRoot = await mkdtemp(join(tmpdir(), "agent-runner-workspace-"));
+    const workspaceRoot = await mkdtemp(
+      join(tmpdir(), "agent-runner-workspace-"),
+    );
     tempDirs.push(workspaceRoot);
     const appServerDir = await mkdtemp(join(tmpdir(), "agent-runner-server-"));
     tempDirs.push(appServerDir);
@@ -194,42 +223,52 @@ rl.on("line", (line) => {
   }
 });
 `,
-      "utf8"
+      "utf8",
     );
 
     const logger = {
       debug: vi.fn(),
       info: vi.fn(),
       warn: vi.fn(),
-      error: vi.fn()
+      error: vi.fn(),
     };
 
     const runner = new AgentRunner({
-      workflowDefinition: validWorkflowDefinition(workspaceRoot, `${process.execPath} ${scriptPath}`, promptLogPath),
-      issueStateRefresher: vi.fn().mockResolvedValue([
-        makeIssue({ id: "issue-1", identifier: "ABC-1", state: "Done" })
-      ]),
-      logger
+      workflowDefinition: validWorkflowDefinition(
+        workspaceRoot,
+        `${process.execPath} ${scriptPath}`,
+        promptLogPath,
+      ),
+      issueStateRefresher: vi
+        .fn()
+        .mockResolvedValue([
+          makeIssue({ id: "issue-1", identifier: "ABC-1", state: "Done" }),
+        ]),
+      logger,
     });
 
     await runner.runAttempt({
-      issue: makeIssue({ id: "issue-1", identifier: "ABC-1", state: "In Progress" }),
-      attempt: null
+      issue: makeIssue({
+        id: "issue-1",
+        identifier: "ABC-1",
+        state: "In Progress",
+      }),
+      attempt: null,
     });
 
     expect(logger.info).toHaveBeenCalledWith(
       "run attempt started",
       expect.objectContaining({
         issue_id: "issue-1",
-        issue_identifier: "ABC-1"
-      })
+        issue_identifier: "ABC-1",
+      }),
     );
     expect(logger.info).toHaveBeenCalledWith(
       "run attempt completed",
       expect.objectContaining({
         issue_id: "issue-1",
-        issue_identifier: "ABC-1"
-      })
+        issue_identifier: "ABC-1",
+      }),
     );
   });
 });
@@ -238,7 +277,7 @@ function validWorkflowDefinition(
   workspaceRoot: string,
   command: string,
   promptLogPath: string,
-  maxTurns = 2
+  maxTurns = 2,
 ): WorkflowDefinition {
   process.env.PROMPT_LOG_PATH = promptLogPath;
   return {
@@ -246,36 +285,39 @@ function validWorkflowDefinition(
       tracker: {
         kind: "linear",
         api_key: "token",
-        project_slug: "demo"
+        project_slug: "demo",
       },
       workspace: {
-        root: workspaceRoot
+        root: workspaceRoot,
       },
       agent: {
-        max_turns: maxTurns
+        max_turns: maxTurns,
       },
       codex: {
-        command
-      }
+        command,
+      },
     },
-    promptTemplate: "You are working on {{ issue.identifier }} attempt {{ attempt }}"
+    promptTemplate:
+      "You are working on {{ issue.identifier }} attempt {{ attempt }}",
   };
 }
 
-function makeIssue(overrides: Partial<OrchestrationIssue> = {}): OrchestrationIssue {
+function makeIssue(
+  overrides: Partial<OrchestrationIssue> = {},
+): OrchestrationIssue {
   const identifier = overrides.identifier ?? "ABC-1";
   return {
     id: overrides.id ?? identifier.toLowerCase(),
     identifier,
     title: overrides.title ?? `Issue ${identifier}`,
     description: overrides.description ?? null,
-    priority: "priority" in overrides ? overrides.priority ?? null : 1,
+    priority: "priority" in overrides ? (overrides.priority ?? null) : 1,
     state: overrides.state ?? "Todo",
     branchName: overrides.branchName ?? null,
     url: overrides.url ?? null,
     labels: overrides.labels ?? [],
     blockedBy: overrides.blockedBy ?? [],
     createdAt: overrides.createdAt ?? new Date("2026-03-01T10:00:00.000Z"),
-    updatedAt: overrides.updatedAt ?? new Date("2026-03-01T10:00:00.000Z")
+    updatedAt: overrides.updatedAt ?? new Date("2026-03-01T10:00:00.000Z"),
   };
 }
