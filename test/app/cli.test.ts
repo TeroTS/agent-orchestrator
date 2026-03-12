@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { runCli } from "../src/app/cli.js";
+import { runCli } from "../../src/app/cli.js";
 
 describe("runCli", () => {
   it("uses ./WORKFLOW.md when no positional workflow path is provided", async () => {

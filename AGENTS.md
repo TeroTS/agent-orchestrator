@@ -39,8 +39,8 @@ runtime state in a single in-memory orchestrator.
 
 ## Run a Single Test
 
-- One file: `npm test -- test/orchestrator.test.ts`
-- One named case: `npx vitest run test/orchestrator.test.ts -t "tracks live session metadata"`
+- One file: `npm test -- test/orchestrator/orchestrator.test.ts`
+- One named case: `npx vitest run test/orchestrator/orchestrator.test.ts -t "tracks live session metadata"`
 
 ## Rules
 

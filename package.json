@@ -12,7 +12,7 @@
     "start": "node dist/src/app/main.js",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
-    "test:integration": "vitest run test/real-integration.test.ts",
+    "test:integration": "vitest run test/codex/real-integration.test.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test:watch": "vitest"
   },

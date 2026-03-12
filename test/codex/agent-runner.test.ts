@@ -3,9 +3,9 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { AgentRunner } from "../src/codex/agent-runner.js";
-import type { WorkflowDefinition } from "../src/workflow/loader.js";
-import type { OrchestrationIssue } from "../src/orchestrator/rules.js";
+import { AgentRunner } from "../../src/codex/agent-runner.js";
+import type { WorkflowDefinition } from "../../src/workflow/loader.js";
+import type { OrchestrationIssue } from "../../src/orchestrator/rules.js";
 
 const tempDirs: string[] = [];
 

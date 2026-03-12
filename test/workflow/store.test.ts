@@ -3,8 +3,8 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { loadWorkflowDefinitionFromPathOrCwd } from "../src/workflow/loader.js";
-import { WorkflowStore } from "../src/workflow/store.js";
+import { loadWorkflowDefinitionFromPathOrCwd } from "../../src/workflow/loader.js";
+import { WorkflowStore } from "../../src/workflow/store.js";
 
 const tempDirs: string[] = [];
 

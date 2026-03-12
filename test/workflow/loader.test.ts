@@ -8,7 +8,7 @@ import {
   renderPromptTemplate,
   validateWorkflowForDispatch,
   type WorkflowDefinition,
-} from "../src/workflow/loader.js";
+} from "../../src/workflow/loader.js";
 
 const tempDirs: string[] = [];
 

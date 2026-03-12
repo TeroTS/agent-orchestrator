@@ -6,8 +6,8 @@ import {
   selectIssuesToDispatch,
   type RetryEntry,
   type RunningEntry,
-} from "../src/orchestrator/state.js";
-import type { OrchestrationIssue } from "../src/orchestrator/rules.js";
+} from "../../src/orchestrator/state.js";
+import type { OrchestrationIssue } from "../../src/orchestrator/rules.js";
 
 describe("selectIssuesToDispatch", () => {
   it("sorts and selects only eligible issues while slots remain", () => {

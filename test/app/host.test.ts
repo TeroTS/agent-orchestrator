@@ -2,7 +2,7 @@ import { EventEmitter } from "node:events";
 
 import { describe, expect, it, vi } from "vitest";
 
-import { runHost } from "../src/app/host.js";
+import { runHost } from "../../src/app/host.js";
 
 describe("runHost", () => {
   it("stops the service on SIGTERM and exits cleanly", async () => {

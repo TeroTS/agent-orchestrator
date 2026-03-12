@@ -46,7 +46,7 @@ Other useful commands:
 
 ```bash
 npm run test:coverage
-npm test -- test/orchestrator.test.ts
+npm test -- test/orchestrator/orchestrator.test.ts
 ```
 
 ## First-Run Troubleshooting

@@ -1,9 +1,9 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 
-import { SymphonyOrchestrator } from "../src/orchestrator/orchestrator.js";
-import { createStructuredLogger } from "../src/observability/structured-logger.js";
-import type { WorkflowDefinition } from "../src/workflow/loader.js";
-import type { OrchestrationIssue } from "../src/orchestrator/rules.js";
+import { SymphonyOrchestrator } from "../../src/orchestrator/orchestrator.js";
+import { createStructuredLogger } from "../../src/observability/structured-logger.js";
+import type { WorkflowDefinition } from "../../src/workflow/loader.js";
+import type { OrchestrationIssue } from "../../src/orchestrator/rules.js";
 
 describe("SymphonyOrchestrator", () => {
   beforeEach(() => {
