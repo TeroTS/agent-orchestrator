@@ -26,10 +26,10 @@ require stricter approvals or sandboxing.
 
 Important boundary:
 
-- Symphony is a scheduler/runner and tracker reader.
-- Ticket writes (state transitions, comments, PR links) are typically performed by the coding agent
-  using tools available in the workflow/runtime environment.
-- A successful run may end at a workflow-defined handoff state (for example `Human Review`), not
+- Symphony is a scheduler/runner and owns workflow-level claim and handoff state transitions.
+- Additional tracker writes (comments, PR links, workflow-specific metadata) are typically
+  performed by the coding agent using tools available in the workflow/runtime environment.
+- A successful run may end at a workflow-defined handoff state (for example `In Review`), not
   necessarily `Done`.
 
 ## 2. Goals and Non-Goals
@@ -555,8 +555,10 @@ This section is intentionally redundant so a coding agent can implement the conf
 - `tracker.endpoint`: string, default `https://api.linear.app/graphql` when `tracker.kind=linear`
 - `tracker.api_key`: string or `$VAR`, canonical env `LINEAR_API_KEY` when `tracker.kind=linear`
 - `tracker.project_slug`: string, required when `tracker.kind=linear`
-- `tracker.active_states`: list of strings, default `["Todo", "In Progress"]`
-- `tracker.terminal_states`: list of strings, default `["Closed", "Cancelled", "Canceled", "Duplicate", "Done"]`
+- `tracker.dispatch_state`: string, default `"In Progress"`
+- `tracker.handoff_state`: string, default `"In Review"`
+- `tracker.active_states`: list of strings, default `["Todo", "In Progress", "Rework"]`
+- `tracker.terminal_states`: list of strings, default `["Done"]`
 - `polling.interval_ms`: integer, default `30000`
 - `workspace.root`: path, default `<system-temp>/symphony_workspaces`
 - `hooks.after_create`: shell script or null
@@ -608,16 +610,14 @@ claim state.
 Important nuance:
 
 - A successful worker exit does not mean the issue is done forever.
-- The worker may continue through multiple back-to-back coding-agent turns before it exits.
-- After each normal turn completion, the worker re-checks the tracker issue state.
-- If the issue is still in an active state, the worker should start another turn on the same live
-  coding-agent thread in the same workspace, up to `agent.max_turns`.
-- The first turn should use the full rendered task prompt.
-- Continuation turns should send only continuation guidance to the existing thread, not resend the
-  original task prompt that is already present in thread history.
-- Once the worker exits normally, the orchestrator still schedules a short continuation retry
-  (about 1 second) so it can re-check whether the issue remains active and needs another worker
-  session.
+- A worker run attempt should execute one coding-agent turn and then exit normally or with error.
+- After a normal turn completion, the worker re-checks tracker state once and returns control to
+  the orchestrator.
+- If the issue still needs work after that turn, continuation should be explicit via workflow
+  state (for example a human or automation moving the ticket back to an active state such as
+  `Rework`) rather than an internal turn loop.
+- Once the worker exits normally, the orchestrator may transition the issue to the configured
+  handoff state or schedule a retry if the workflow still requires another run.
 
 ### 7.2 Run Attempt Lifecycle
 
@@ -967,7 +967,7 @@ Session identifiers:
 - Read `thread_id` from `thread/start` result `result.thread.id`
 - Read `turn_id` from each `turn/start` result `result.turn.id`
 - Emit `session_id = "<thread_id>-<turn_id>"`
-- Reuse the same `thread_id` for all continuation turns inside one worker run
+- Each worker run attempt starts one turn on one live `thread_id`
 
 ### 10.3 Streaming Turn Processing
 
@@ -981,12 +981,11 @@ Completion conditions:
 - turn timeout (`turn_timeout_ms`) -> failure
 - subprocess exit -> failure
 
-Continuation processing:
+Run-attempt processing:
 
-- If the worker decides to continue after a successful turn, it should issue another `turn/start`
-  on the same live `threadId`.
-- The app-server subprocess should remain alive across those continuation turns and be stopped only
-  when the worker run is ending.
+- The worker should issue exactly one `turn/start` per run attempt.
+- If more work is required after that turn, the orchestrator should schedule a later attempt based
+  on tracker state instead of issuing another in-process continuation turn.
 
 Line handling requirements:
 
@@ -1209,15 +1208,16 @@ Orchestrator behavior on tracker errors:
 
 ### 11.5 Tracker Writes (Important Boundary)
 
-Symphony does not require first-class tracker write APIs in the orchestrator.
+Symphony may perform first-class tracker writes for workflow-owned transitions.
 
-- Ticket mutations (state transitions, comments, PR metadata) are typically handled by the coding
-  agent using tools defined by the workflow prompt.
-- The service remains a scheduler/runner and tracker reader.
+- The orchestrator may mutate tracker state for claim and handoff transitions (for example
+  `Todo -> In Progress -> In Review`).
+- Additional ticket mutations such as comments, PR metadata, or workflow-specific annotations are
+  typically handled by the coding agent using tools defined by the workflow prompt.
 - Workflow-specific success often means "reached the next handoff state" (for example
-  `Human Review`) rather than tracker terminal state `Done`.
-- If the optional `linear_graphql` client-side tool extension is implemented, it is still part of
-  the agent toolchain rather than orchestrator business logic.
+  `In Review`) rather than tracker terminal state `Done`.
+- If the optional `linear_graphql` client-side tool extension is implemented, it remains part of
+  the agent toolchain for non-orchestrator ticket writes.
 
 ## 12. Prompt Construction and Context Assembly
 
@@ -1820,43 +1820,31 @@ function run_agent_attempt(issue, attempt, orchestrator_channel):
     run_hook_best_effort("after_run", workspace.path)
     fail_worker("agent session startup error")
 
-  max_turns = config.agent.max_turns
-  turn_number = 1
+  prompt = build_turn_prompt(workflow_template, issue, attempt, 1, config.agent.max_turns)
+  if prompt failed:
+    app_server.stop_session(session)
+    run_hook_best_effort("after_run", workspace.path)
+    fail_worker("prompt error")
 
-  while true:
-    prompt = build_turn_prompt(workflow_template, issue, attempt, turn_number, max_turns)
-    if prompt failed:
-      app_server.stop_session(session)
-      run_hook_best_effort("after_run", workspace.path)
-      fail_worker("prompt error")
+  turn_result = app_server.run_turn(
+    session=session,
+    prompt=prompt,
+    issue=issue,
+    on_message=(msg) -> send(orchestrator_channel, {codex_update, issue.id, msg})
+  )
 
-    turn_result = app_server.run_turn(
-      session=session,
-      prompt=prompt,
-      issue=issue,
-      on_message=(msg) -> send(orchestrator_channel, {codex_update, issue.id, msg})
-    )
+  if turn_result failed:
+    app_server.stop_session(session)
+    run_hook_best_effort("after_run", workspace.path)
+    fail_worker("agent turn error")
 
-    if turn_result failed:
-      app_server.stop_session(session)
-      run_hook_best_effort("after_run", workspace.path)
-      fail_worker("agent turn error")
+  refreshed_issue = tracker.fetch_issue_states_by_ids([issue.id])
+  if refreshed_issue failed:
+    app_server.stop_session(session)
+    run_hook_best_effort("after_run", workspace.path)
+    fail_worker("issue state refresh error")
 
-    refreshed_issue = tracker.fetch_issue_states_by_ids([issue.id])
-    if refreshed_issue failed:
-      app_server.stop_session(session)
-      run_hook_best_effort("after_run", workspace.path)
-      fail_worker("issue state refresh error")
-
-    issue = refreshed_issue[0] or issue
-
-    if issue.state is not active:
-      break
-
-    if turn_number >= max_turns:
-      break
-
-    turn_number = turn_number + 1
+  issue = refreshed_issue[0] or issue
 
   app_server.stop_session(session)
   run_hook_best_effort("after_run", workspace.path)
