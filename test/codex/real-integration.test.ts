@@ -9,6 +9,7 @@ import { CodexAppServerClient } from "../../src/codex/app-server.js";
 import { LinearTrackerClient } from "../../src/tracker/linear-client.js";
 
 const tempDirs: string[] = [];
+const REAL_CODEX_SESSION_TIMEOUT_MS = 20_000;
 
 afterEach(async () => {
   await Promise.all(
@@ -40,38 +41,44 @@ describe("real integration smoke", () => {
     expect(Array.isArray(issues)).toBe(true);
   });
 
-  realIt("starts a real Codex app-server session", async () => {
-    const codexPath = spawnSync("bash", ["-lc", "command -v codex"], {
-      encoding: "utf8",
-    });
-    if (codexPath.status !== 0) {
-      throw new Error(
-        "codex command is required for real integration smoke tests",
-      );
-    }
-
-    const workspacePath = await mkdtemp(join(tmpdir(), "symphony-real-codex-"));
-    tempDirs.push(workspacePath);
-
-    const client = new CodexAppServerClient({
-      command: process.env.SYMPHONY_CODEX_COMMAND ?? "codex app-server",
-      workspacePath,
-      approvalPolicy: "never",
-      threadSandbox: "workspace-write",
-      turnSandboxPolicy: { type: "workspaceWrite" },
-      readTimeoutMs: 5000,
-      turnTimeoutMs: 60000,
-    });
-
-    try {
-      await client.start();
-      const result = await client.runTurn({
-        prompt: "Reply with READY and stop.",
-        title: "SMOKE-1: Real Codex session",
+  realIt(
+    "starts a real Codex app-server session",
+    async () => {
+      const codexPath = spawnSync("bash", ["-lc", "command -v codex"], {
+        encoding: "utf8",
       });
-      expect(result.outcome).toBe("completed");
-    } finally {
-      await client.stop();
-    }
-  });
+      if (codexPath.status !== 0) {
+        throw new Error(
+          "codex command is required for real integration smoke tests",
+        );
+      }
+
+      const workspacePath = await mkdtemp(
+        join(tmpdir(), "symphony-real-codex-"),
+      );
+      tempDirs.push(workspacePath);
+
+      const client = new CodexAppServerClient({
+        command: process.env.SYMPHONY_CODEX_COMMAND ?? "codex app-server",
+        workspacePath,
+        approvalPolicy: "never",
+        threadSandbox: "workspace-write",
+        turnSandboxPolicy: { type: "workspaceWrite" },
+        readTimeoutMs: 5000,
+        turnTimeoutMs: 60000,
+      });
+
+      try {
+        await client.start();
+        const result = await client.runTurn({
+          prompt: "Reply with READY and stop.",
+          title: "SMOKE-1: Real Codex session",
+        });
+        expect(result.outcome).toBe("completed");
+      } finally {
+        await client.stop();
+      }
+    },
+    REAL_CODEX_SESSION_TIMEOUT_MS,
+  );
 });

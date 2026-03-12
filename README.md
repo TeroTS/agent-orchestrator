@@ -5,12 +5,7 @@ Symphony is a TypeScript implementation of the orchestration service described i
 workspaces, starts Codex app-server sessions, and tracks runtime state in a
 single in-memory orchestrator.
 
-This repository is now TypeScript-only. The previous Elixir reference
-implementation has been removed.
-
 ## Current implementation
-
-Implemented today:
 
 - `WORKFLOW.md` loading, validation, and live reload
 - Linear-compatible tracker client
