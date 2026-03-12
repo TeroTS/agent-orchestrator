@@ -2,24 +2,26 @@
 tracker:
   kind: linear
   api_key: $LINEAR_API_KEY
-  project_slug: replace-with-your-linear-project-slug
+  project_slug: project_slug_here
+  dispatch_state: In Progress
+  handoff_state: In Review
   active_states:
     - Todo
     - In Progress
     - Rework
-    - Human Review
-    - Merging
   terminal_states:
     - Done
-    - Closed
-    - Cancelled
-    - Canceled
-    - Duplicate
 polling:
   interval_ms: 5000
 workspace:
   root: ./.symphony/workspaces
 hooks:
+  after_create: |
+    git clone --quiet --no-local "$(git -C ../../.. rev-parse --show-toplevel)" .
+  before_run: |
+    if [ -d ../../../node_modules ] && [ ! -e node_modules ]; then
+      ln -s ../../../node_modules node_modules
+    fi
   timeout_ms: 60000
 agent:
   max_concurrent_agents: 10
@@ -28,6 +30,8 @@ codex:
   command: codex app-server
   approval_policy: never
   thread_sandbox: workspace-write
+  turn_timeout_ms: 300000
+  stall_timeout_ms: 120000
   turn_sandbox_policy:
     type: workspaceWrite
 ---
@@ -63,4 +67,5 @@ Execution rules:
 3. Reproduce the issue or confirm the requested change before implementing when practical.
 4. Prefer targeted validation that proves the changed behavior directly.
 5. If Linear access is available through MCP or the injected `linear_graphql` tool, use it when the task requires tracker context.
-6. Final output must summarize completed work, validation run, and any remaining blocker.
+6. When the implementation work is complete and validation passes, move the issue to `In Review` using `linear_graphql` unless a different handoff state is clearly required.
+7. Final output must summarize completed work, validation run, and any remaining blocker.

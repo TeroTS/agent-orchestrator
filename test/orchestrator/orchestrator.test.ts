@@ -20,6 +20,7 @@ describe("SymphonyOrchestrator", () => {
         config: {
           tracker: {
             kind: "linear",
+            api_key: "token",
           },
         },
         promptTemplate: "Prompt",
@@ -31,7 +32,7 @@ describe("SymphonyOrchestrator", () => {
     });
 
     await expect(orchestrator.start()).rejects.toThrow(
-      /tracker.api_key is required/,
+      /tracker.project_slug is required/,
     );
   });
 
@@ -62,6 +63,17 @@ describe("SymphonyOrchestrator", () => {
       tracker: fakeTracker({
         fetchIssuesByStates: vi.fn().mockResolvedValue([terminalIssue]),
         fetchCandidateIssues: vi.fn().mockResolvedValue([todoA, todoB]),
+        transitionIssueToState: vi
+          .fn()
+          .mockImplementation(async (issueId: string) => {
+            const issue = [todoA, todoB].find(
+              (candidate) => candidate.id === issueId,
+            );
+            return makeIssue({
+              ...issue,
+              state: "In Progress",
+            });
+          }),
       }),
       runner: {
         startRun,
@@ -120,8 +132,20 @@ describe("SymphonyOrchestrator", () => {
     expect(removeWorkspace).toHaveBeenCalledTimes(1);
   });
 
-  it("schedules a continuation retry after a normal worker exit", async () => {
+  it("schedules a continuation retry after a normal worker exit when the handoff transition fails", async () => {
     let resolveRun: ((value: { reason: "normal" }) => void) | undefined;
+    const startRun = vi
+      .fn()
+      .mockReturnValueOnce({
+        cancel: vi.fn(),
+        promise: new Promise((resolve) => {
+          resolveRun = resolve;
+        }),
+      })
+      .mockReturnValueOnce({
+        cancel: vi.fn(),
+        promise: new Promise(() => {}),
+      });
     const orchestrator = new SymphonyOrchestrator({
       workflowStore: fakeWorkflowStore(validWorkflowDefinition()),
       tracker: fakeTracker({
@@ -132,14 +156,19 @@ describe("SymphonyOrchestrator", () => {
             state: "In Progress",
           }),
         ]),
+        fetchIssueStatesByIds: vi.fn().mockResolvedValue([
+          makeIssue({
+            id: "issue-1",
+            identifier: "ABC-1",
+            state: "In Progress",
+          }),
+        ]),
+        transitionIssueToState: vi
+          .fn()
+          .mockRejectedValue(new Error("handoff unavailable")),
       }),
       runner: {
-        startRun: vi.fn().mockReturnValue({
-          cancel: vi.fn(),
-          promise: new Promise((resolve) => {
-            resolveRun = resolve;
-          }),
-        }),
+        startRun,
       },
       removeWorkspace: vi.fn(),
       logger: silentLogger(),
@@ -152,13 +181,11 @@ describe("SymphonyOrchestrator", () => {
     );
     resolveRun?.({ reason: "normal" });
     await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(1000);
 
-    const snapshot = orchestrator.snapshot();
-    expect(snapshot.retries).toHaveLength(1);
-    expect(snapshot.retries[0]).toMatchObject({
-      issueId: "issue-1",
-      attempt: 1,
-    });
+    expect(startRun).toHaveBeenCalledTimes(2);
   });
 
   it("fires retry timers and redispatches the issue when it is still eligible", async () => {
@@ -203,6 +230,98 @@ describe("SymphonyOrchestrator", () => {
     await vi.advanceTimersByTimeAsync(1000);
 
     expect(startRun).toHaveBeenCalledTimes(2);
+  });
+
+  it("moves Todo issues to the configured dispatch state before dispatching the worker", async () => {
+    const transitionIssueToState = vi.fn().mockResolvedValue(
+      makeIssue({
+        id: "issue-1",
+        identifier: "ABC-1",
+        state: "In Progress",
+      }),
+    );
+    const startRun = vi.fn().mockReturnValue({
+      cancel: vi.fn(),
+      promise: new Promise(() => {}),
+    });
+    const orchestrator = new SymphonyOrchestrator({
+      workflowStore: fakeWorkflowStore(validWorkflowDefinition()),
+      tracker: fakeTracker({
+        transitionIssueToState,
+      }),
+      runner: {
+        startRun,
+      },
+      removeWorkspace: vi.fn(),
+      logger: silentLogger(),
+    });
+
+    await orchestrator.start();
+    await orchestrator.dispatchNow(
+      makeIssue({ id: "issue-1", identifier: "ABC-1", state: "Todo" }),
+      null,
+    );
+
+    expect(transitionIssueToState).toHaveBeenCalledWith(
+      "issue-1",
+      "In Progress",
+    );
+    expect(startRun).toHaveBeenCalledWith(
+      expect.objectContaining({
+        issue: expect.objectContaining({
+          id: "issue-1",
+          state: "In Progress",
+        }),
+      }),
+    );
+  });
+
+  it("moves successfully completed active issues to the configured handoff state without scheduling another retry", async () => {
+    let resolveRun: ((value: { reason: "normal" }) => void) | undefined;
+    const transitionIssueToState = vi.fn().mockResolvedValue(
+      makeIssue({
+        id: "issue-1",
+        identifier: "ABC-1",
+        state: "In Review",
+      }),
+    );
+    const tracker = fakeTracker({
+      fetchIssueStatesByIds: vi.fn().mockResolvedValue([
+        makeIssue({
+          id: "issue-1",
+          identifier: "ABC-1",
+          state: "In Progress",
+        }),
+      ]),
+      transitionIssueToState,
+    });
+    const orchestrator = new SymphonyOrchestrator({
+      workflowStore: fakeWorkflowStore(validWorkflowDefinition()),
+      tracker,
+      runner: {
+        startRun: vi.fn().mockReturnValue({
+          cancel: vi.fn(),
+          promise: new Promise((resolve) => {
+            resolveRun = resolve;
+          }),
+        }),
+      },
+      removeWorkspace: vi.fn(),
+      logger: silentLogger(),
+    });
+
+    await orchestrator.start();
+    await orchestrator.dispatchNow(
+      makeIssue({ id: "issue-1", identifier: "ABC-1", state: "In Progress" }),
+      null,
+    );
+    resolveRun?.({ reason: "normal" });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(tracker.fetchIssueStatesByIds).toHaveBeenCalledWith(["issue-1"]);
+    expect(transitionIssueToState).toHaveBeenCalledWith("issue-1", "In Review");
+    expect(orchestrator.snapshot().retries).toEqual([]);
   });
 
   it("tracks live session metadata from runner events in the runtime snapshot", async () => {
@@ -269,6 +388,82 @@ describe("SymphonyOrchestrator", () => {
         lastCodexTimestamp: "2026-03-12T00:00:01.000Z",
       }),
     ]);
+  });
+
+  it("logs issue-scoped runtime activity and includes the last event on worker failure", async () => {
+    const logger = spyLogger();
+    let rejectRun: ((reason?: unknown) => void) | undefined;
+    const orchestrator = new SymphonyOrchestrator({
+      workflowStore: fakeWorkflowStore(validWorkflowDefinition()),
+      tracker: fakeTracker(),
+      runner: {
+        startRun: vi
+          .fn()
+          .mockImplementation(
+            ({ onEvent }: { onEvent?: (event: unknown) => void }) => {
+              queueMicrotask(() => {
+                onEvent?.({
+                  event: "session_started",
+                  timestamp: "2026-03-12T00:00:00.000Z",
+                  sessionId: "thread-1-turn-1",
+                  payload: {
+                    threadId: "thread-1",
+                    turnId: "turn-1",
+                  },
+                });
+                onEvent?.({
+                  event: "notification",
+                  timestamp: "2026-03-12T00:00:01.000Z",
+                  message: "Still working",
+                  sessionId: "thread-1-turn-1",
+                });
+              });
+
+              return {
+                cancel: vi.fn(),
+                promise: new Promise((_, reject) => {
+                  rejectRun = reject;
+                }),
+              };
+            },
+          ),
+      },
+      removeWorkspace: vi.fn(),
+      logger,
+    });
+
+    await orchestrator.start();
+    await orchestrator.dispatchNow(
+      makeIssue({ id: "issue-1", identifier: "ABC-1", state: "In Progress" }),
+      null,
+    );
+    await Promise.resolve();
+
+    expect(logger.info).toHaveBeenCalledWith(
+      "runtime event",
+      expect.objectContaining({
+        issue_id: "issue-1",
+        issue_identifier: "ABC-1",
+        session_id: "thread-1-turn-1",
+        event: "notification",
+        message: "Still working",
+      }),
+    );
+
+    rejectRun?.(new Error("Turn timed out after 60000ms."));
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(logger.warn).toHaveBeenCalledWith(
+      "worker failed",
+      expect.objectContaining({
+        issue_id: "issue-1",
+        issue_identifier: "ABC-1",
+        session_id: "thread-1-turn-1",
+        last_event: "notification",
+        last_message: "Still working",
+      }),
+    );
   });
 
   it("kills stalled runs and queues a retry", async () => {
@@ -348,6 +543,7 @@ describe("SymphonyOrchestrator", () => {
       config: {
         tracker: {
           kind: "linear",
+          api_key: "token",
         },
       },
       promptTemplate: "Prompt",
@@ -365,7 +561,11 @@ describe("SymphonyOrchestrator", () => {
         .fn()
         .mockRejectedValueOnce(new Error("candidate fetch failed"))
         .mockResolvedValueOnce([
-          makeIssue({ id: "issue-1", identifier: "ABC-1", state: "Todo" }),
+          makeIssue({
+            id: "issue-1",
+            identifier: "ABC-1",
+            state: "In Progress",
+          }),
         ]),
     });
     const startRun = vi.fn().mockReturnValue({
@@ -397,7 +597,7 @@ describe("SymphonyOrchestrator", () => {
     expect(logger.error).toHaveBeenCalledWith(
       "workflow reload validation failed",
       expect.objectContaining({
-        reason: expect.stringContaining("tracker.api_key is required"),
+        reason: expect.stringContaining("tracker.project_slug is required"),
       }),
     );
   });
@@ -468,6 +668,7 @@ function baseTracker() {
     fetchCandidateIssues: vi.fn().mockResolvedValue([]),
     fetchIssuesByStates: vi.fn().mockResolvedValue([]),
     fetchIssueStatesByIds: vi.fn().mockResolvedValue([]),
+    transitionIssueToState: vi.fn(),
   };
 }
 

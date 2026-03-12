@@ -31,6 +31,7 @@ type TrackerFacade = {
   fetchCandidateIssues(activeStates: string[]): Promise<any[]>;
   fetchIssuesByStates(states: string[]): Promise<any[]>;
   fetchIssueStatesByIds(issueIds: string[]): Promise<any[]>;
+  transitionIssueToState(issueId: string, stateName: string): Promise<any>;
 };
 
 type RunnerFacade = {
@@ -77,6 +78,10 @@ export async function createService(input: {
     fetchIssueStatesByIds: async (issueIds: string[]) => {
       const client = createTrackerClient(workflowStore.current());
       return client.fetchIssueStatesByIds(issueIds);
+    },
+    transitionIssueToState: async (issueId: string, stateName: string) => {
+      const client = createTrackerClient(workflowStore.current());
+      return client.transitionIssueToState(issueId, stateName);
     },
   };
 

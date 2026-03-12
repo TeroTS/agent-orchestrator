@@ -178,6 +178,110 @@ describe("LinearTrackerClient", () => {
     ]);
   });
 
+  it("moves an issue to a named workflow state by resolving the team state id first", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse({
+          data: {
+            issue: {
+              id: "issue-1",
+              team: {
+                id: "team-1",
+                states: {
+                  nodes: [
+                    { id: "state-1", name: "Todo", type: "unstarted" },
+                    {
+                      id: "state-2",
+                      name: "In Progress",
+                      type: "started",
+                    },
+                    {
+                      id: "state-3",
+                      name: "In Review",
+                      type: "started",
+                    },
+                  ],
+                },
+              },
+            },
+          },
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          data: {
+            issueUpdate: {
+              success: true,
+              issue: {
+                id: "issue-1",
+                identifier: "ABC-1",
+                title: "Refresh state",
+                state: {
+                  name: "In Review",
+                },
+              },
+            },
+          },
+        }),
+      );
+
+    const client = new LinearTrackerClient({
+      endpoint: "https://api.linear.app/graphql",
+      apiKey: "linear-token",
+      projectSlug: "demo-project",
+      fetchFn: fetchMock,
+    });
+
+    const issue = await client.transitionIssueToState("issue-1", "In Review");
+
+    const lookupBody = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    expect(lookupBody.query).toContain("IssueTeamStates");
+    expect(lookupBody.variables).toEqual({ id: "issue-1" });
+
+    const updateBody = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body));
+    expect(updateBody.query).toContain("MoveIssueToState");
+    expect(updateBody.variables).toEqual({
+      id: "issue-1",
+      stateId: "state-3",
+    });
+
+    expect(issue).toMatchObject({
+      id: "issue-1",
+      identifier: "ABC-1",
+      state: "In Review",
+    });
+  });
+
+  it("fails with a typed error when the named destination workflow state is missing", async () => {
+    const client = new LinearTrackerClient({
+      endpoint: "https://api.linear.app/graphql",
+      apiKey: "linear-token",
+      projectSlug: "demo-project",
+      fetchFn: vi.fn().mockResolvedValue(
+        jsonResponse({
+          data: {
+            issue: {
+              id: "issue-1",
+              team: {
+                id: "team-1",
+                states: {
+                  nodes: [{ id: "state-1", name: "Todo", type: "unstarted" }],
+                },
+              },
+            },
+          },
+        }),
+      ),
+    });
+
+    await expect(
+      client.transitionIssueToState("issue-1", "In Review"),
+    ).rejects.toMatchObject({
+      code: "linear_state_not_found",
+    });
+  });
+
   it("maps transport, status, graphql, and malformed payload failures to typed tracker errors", async () => {
     const transportClient = new LinearTrackerClient({
       endpoint: "https://api.linear.app/graphql",

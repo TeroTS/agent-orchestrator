@@ -36,6 +36,10 @@ export interface TrackerLike {
   fetchCandidateIssues(activeStates: string[]): Promise<OrchestrationIssue[]>;
   fetchIssuesByStates(states: string[]): Promise<OrchestrationIssue[]>;
   fetchIssueStatesByIds(issueIds: string[]): Promise<OrchestrationIssue[]>;
+  transitionIssueToState(
+    issueId: string,
+    stateName: string,
+  ): Promise<OrchestrationIssue>;
 }
 
 export interface RunnerHandle {
@@ -161,6 +165,11 @@ export class SymphonyOrchestrator {
     issue: OrchestrationIssue,
     attempt: number | null,
   ): Promise<void> {
+    const preparedIssue = await this.prepareIssueForDispatch(issue, attempt);
+    if (!preparedIssue) {
+      return;
+    }
+    issue = preparedIssue;
     this.claimed.add(issue.id);
     this.retryAttempts.delete(issue.id);
     this.clearRetryTimer(issue.id);
@@ -324,13 +333,18 @@ export class SymphonyOrchestrator {
     this.running.delete(issue.id);
 
     if (result.reason === "normal") {
+      const issueToRetry = await this.completeIssueAfterSuccess(issue);
       this.logger.info("worker completed", {
         issue_id: issue.id,
         issue_identifier: issue.identifier,
         outcome: "completed",
       });
       this.completed.add(issue.id);
-      this.scheduleRetry(issue, 1, null, true);
+      if (!issueToRetry) {
+        return;
+      }
+
+      this.scheduleRetry(issueToRetry, 1, null, true);
       return;
     }
 
@@ -339,9 +353,97 @@ export class SymphonyOrchestrator {
       issue_identifier: issue.identifier,
       outcome: "retrying",
       reason: result.error,
+      session_id: running.sessionId,
+      last_event: running.lastCodexEvent,
+      last_message: running.lastCodexMessage,
     });
     const nextAttempt = (running.retryAttempt ?? 0) + 1;
     this.scheduleRetry(issue, nextAttempt, result.error, false);
+  }
+
+  private async prepareIssueForDispatch(
+    issue: OrchestrationIssue,
+    attempt: number | null,
+  ): Promise<OrchestrationIssue | null> {
+    if (issue.state.toLowerCase() !== "todo") {
+      return issue;
+    }
+
+    const targetState = this.currentConfig().tracker.dispatchState;
+    try {
+      return await this.tracker.transitionIssueToState(issue.id, targetState);
+    } catch (error) {
+      this.logger.warn("dispatch state transition failed", {
+        issue_id: issue.id,
+        issue_identifier: issue.identifier,
+        reason: error instanceof Error ? error.message : String(error),
+        target_state: targetState,
+      });
+      this.scheduleRetry(
+        issue,
+        (attempt ?? 0) + 1,
+        `failed to transition issue to ${targetState}`,
+        false,
+      );
+      return null;
+    }
+  }
+
+  private async completeIssueAfterSuccess(
+    issue: OrchestrationIssue,
+  ): Promise<OrchestrationIssue | null> {
+    const config = this.currentConfig();
+    let refreshedIssue = issue;
+
+    try {
+      const refreshedIssues = await this.tracker.fetchIssueStatesByIds([
+        issue.id,
+      ]);
+      if (refreshedIssues[0]) {
+        refreshedIssue = refreshedIssues[0];
+      }
+    } catch (error) {
+      this.logger.warn("completion state refresh failed", {
+        issue_id: issue.id,
+        issue_identifier: issue.identifier,
+        reason: error instanceof Error ? error.message : String(error),
+      });
+    }
+
+    const action = computeReconciliationAction({
+      nextState: refreshedIssue.state,
+      activeStates: config.tracker.activeStates,
+      terminalStates: config.tracker.terminalStates,
+    });
+
+    if (action !== "update") {
+      this.claimed.delete(issue.id);
+      return null;
+    }
+
+    try {
+      const targetState = config.tracker.handoffState;
+      const transitioned = await this.tracker.transitionIssueToState(
+        refreshedIssue.id,
+        targetState,
+      );
+      this.claimed.delete(issue.id);
+      return computeReconciliationAction({
+        nextState: transitioned.state,
+        activeStates: config.tracker.activeStates,
+        terminalStates: config.tracker.terminalStates,
+      }) === "update"
+        ? transitioned
+        : null;
+    } catch (error) {
+      this.logger.warn("completion state transition failed", {
+        issue_id: refreshedIssue.id,
+        issue_identifier: refreshedIssue.identifier,
+        reason: error instanceof Error ? error.message : String(error),
+        target_state: config.tracker.handoffState,
+      });
+      return refreshedIssue;
+    }
   }
 
   private scheduleRetry(
@@ -553,6 +655,16 @@ export class SymphonyOrchestrator {
       }
       running.turnCount = (running.turnCount ?? 0) + 1;
     }
+
+    if (shouldLogRuntimeEvent(event.event)) {
+      this.logger.info("runtime event", {
+        issue_id: running.issue.id,
+        issue_identifier: running.issue.identifier,
+        session_id: event.sessionId ?? running.sessionId,
+        event: event.event,
+        message,
+      });
+    }
   }
 }
 
@@ -572,4 +684,16 @@ function summarizeRuntimeMessage(event: CodexRuntimeEvent): string | undefined {
   }
 
   return undefined;
+}
+
+function shouldLogRuntimeEvent(eventName: string): boolean {
+  return [
+    "notification",
+    "approval_auto_approved",
+    "unsupported_tool_call",
+    "turn_input_required",
+    "linear_graphql_executed",
+    "linear_graphql_failed",
+    "malformed",
+  ].includes(eventName);
 }

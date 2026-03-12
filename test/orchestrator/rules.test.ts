@@ -177,7 +177,7 @@ describe("computeReconciliationAction", () => {
   it("stops without cleanup for non-active non-terminal states", () => {
     expect(
       computeReconciliationAction({
-        nextState: "Human Review",
+        nextState: "In Review",
         activeStates: ["Todo", "In Progress"],
         terminalStates: ["Done", "Closed"],
       }),

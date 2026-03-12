@@ -98,7 +98,7 @@ rl.on("line", async (line) => {
     expect(prompts[0]).toContain("ABC-1");
   });
 
-  it("runs continuation turns while the issue remains active and max_turns is not exhausted", async () => {
+  it("stops after the first successful turn even if the issue is still active", async () => {
     const workspaceRoot = await mkdtemp(
       join(tmpdir(), "agent-runner-workspace-"),
     );
@@ -145,18 +145,13 @@ rl.on("line", async (line) => {
     );
 
     const tracker = {
-      fetchIssueStatesByIds: vi
-        .fn()
-        .mockResolvedValueOnce([
-          makeIssue({
-            id: "issue-1",
-            identifier: "ABC-1",
-            state: "In Progress",
-          }),
-        ])
-        .mockResolvedValueOnce([
-          makeIssue({ id: "issue-1", identifier: "ABC-1", state: "Done" }),
-        ]),
+      fetchIssueStatesByIds: vi.fn().mockResolvedValueOnce([
+        makeIssue({
+          id: "issue-1",
+          identifier: "ABC-1",
+          state: "In Progress",
+        }),
+      ]),
     };
 
     const runner = new AgentRunner({
@@ -183,7 +178,7 @@ rl.on("line", async (line) => {
       .trim()
       .split("\n")
       .map((line) => JSON.parse(line));
-    expect(prompts).toHaveLength(2);
+    expect(prompts).toHaveLength(1);
   });
 
   it("logs run attempt lifecycle events", async () => {
@@ -270,6 +265,84 @@ rl.on("line", (line) => {
         issue_identifier: "ABC-1",
       }),
     );
+  });
+
+  it("advertises the linear_graphql tool to the app-server using workflow tracker auth", async () => {
+    const workspaceRoot = await mkdtemp(
+      join(tmpdir(), "agent-runner-workspace-"),
+    );
+    tempDirs.push(workspaceRoot);
+    const appServerDir = await mkdtemp(join(tmpdir(), "agent-runner-server-"));
+    tempDirs.push(appServerDir);
+    const promptLogPath = join(appServerDir, "prompts.log");
+    const threadStartLogPath = join(appServerDir, "thread-start.json");
+    const scriptPath = join(appServerDir, "fake-app-server.mjs");
+
+    await writeFile(
+      scriptPath,
+      `
+import { writeFile } from "node:fs/promises";
+import readline from "node:readline";
+
+const rl = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });
+const threadStartLogPath = process.env.THREAD_START_LOG_PATH;
+
+function send(message) {
+  process.stdout.write(JSON.stringify(message) + "\\n");
+}
+
+rl.on("line", async (line) => {
+  const msg = JSON.parse(line);
+  if (msg.method === "initialize") {
+    send({ id: msg.id, result: { ok: true } });
+    return;
+  }
+  if (msg.method === "thread/start") {
+    await writeFile(threadStartLogPath, JSON.stringify(msg.params), "utf8");
+    send({ id: msg.id, result: { thread: { id: "thread-1" } } });
+    return;
+  }
+  if (msg.method === "turn/start") {
+    send({ id: msg.id, result: { turn: { id: "turn-1" } } });
+    send({ method: "turn/completed", params: {} });
+  }
+});
+`,
+      "utf8",
+    );
+
+    process.env.THREAD_START_LOG_PATH = threadStartLogPath;
+
+    const runner = new AgentRunner({
+      workflowDefinition: validWorkflowDefinition(
+        workspaceRoot,
+        `${process.execPath} ${scriptPath}`,
+        promptLogPath,
+      ),
+      issueStateRefresher: vi
+        .fn()
+        .mockResolvedValue([
+          makeIssue({ id: "issue-1", identifier: "ABC-1", state: "Done" }),
+        ]),
+    });
+
+    await runner.runAttempt({
+      issue: makeIssue({
+        id: "issue-1",
+        identifier: "ABC-1",
+        state: "Todo",
+      }),
+      attempt: null,
+    });
+
+    const threadStartParams = JSON.parse(
+      await readFile(threadStartLogPath, "utf8"),
+    );
+    expect(threadStartParams.tools).toEqual([
+      expect.objectContaining({
+        name: "linear_graphql",
+      }),
+    ]);
   });
 });
 

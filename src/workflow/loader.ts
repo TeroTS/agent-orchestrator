@@ -21,6 +21,8 @@ export interface TrackerConfig {
   endpoint: string;
   apiKey: string;
   projectSlug: string;
+  dispatchState: string;
+  handoffState: string;
   activeStates: string[];
   terminalStates: string[];
 }
@@ -83,14 +85,10 @@ export class WorkflowError extends Error {
 
 const DEFAULT_PROMPT = "You are working on an issue from Linear.";
 const DEFAULT_TRACKER_ENDPOINT = "https://api.linear.app/graphql";
-const DEFAULT_ACTIVE_STATES = ["Todo", "In Progress"];
-const DEFAULT_TERMINAL_STATES = [
-  "Closed",
-  "Cancelled",
-  "Canceled",
-  "Duplicate",
-  "Done",
-];
+const DEFAULT_DISPATCH_STATE = "In Progress";
+const DEFAULT_HANDOFF_STATE = "In Review";
+const DEFAULT_ACTIVE_STATES = ["Todo", "In Progress", "Rework"];
+const DEFAULT_TERMINAL_STATES = ["Done"];
 const DEFAULT_POLL_INTERVAL_MS = 30000;
 const DEFAULT_HOOK_TIMEOUT_MS = 60000;
 const DEFAULT_MAX_CONCURRENT_AGENTS = 10;
@@ -199,6 +197,10 @@ export function validateWorkflowForDispatch(
       endpoint: stringAt(trackerConfig, "endpoint") ?? DEFAULT_TRACKER_ENDPOINT,
       apiKey: resolveTrackerApiKey(trackerConfig),
       projectSlug: stringAt(trackerConfig, "project_slug") ?? "",
+      dispatchState:
+        stringAt(trackerConfig, "dispatch_state") ?? DEFAULT_DISPATCH_STATE,
+      handoffState:
+        stringAt(trackerConfig, "handoff_state") ?? DEFAULT_HANDOFF_STATE,
       activeStates:
         stringListAt(trackerConfig, "active_states") ?? DEFAULT_ACTIVE_STATES,
       terminalStates:

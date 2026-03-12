@@ -108,8 +108,16 @@ export class CodexAppServerClient {
       this.handleStdoutChunk(chunk);
     });
 
-    child.stderr.on("data", () => {
+    child.stderr.on("data", (chunk: string) => {
       // Stderr is observability-only and intentionally not parsed as protocol JSON.
+      const normalized = chunk.trim();
+      if (!normalized) {
+        return;
+      }
+
+      this.logger.warn("codex app-server stderr", {
+        chunk: normalized,
+      });
     });
 
     child.on("error", (error) => {
@@ -467,6 +475,7 @@ export class CodexAppServerClient {
 
     this.emit({
       event: method === "notification" ? "notification" : "other_message",
+      message: summarizeProtocolMessage(method, message.params ?? message),
       payload: message.params ?? message,
     });
   }
@@ -600,6 +609,26 @@ function extractUsage(value: any): Record<string, number> | undefined {
     }
   }
   return Object.keys(result).length > 0 ? result : undefined;
+}
+
+function summarizeProtocolMessage(
+  method: string,
+  payload: unknown,
+): string | undefined {
+  if (!method) {
+    return undefined;
+  }
+
+  if (
+    payload &&
+    typeof payload === "object" &&
+    "name" in payload &&
+    typeof payload.name === "string"
+  ) {
+    return `${method}:${payload.name}`;
+  }
+
+  return method;
 }
 
 async function executeLinearGraphqlToolCall(

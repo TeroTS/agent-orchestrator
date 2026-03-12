@@ -49,6 +49,9 @@ rl.on("line", (line) => {
   }
 
   if (msg.method === "initialize") {
+    if (scenario === "stderr") {
+      process.stderr.write("codex boot warning\\n");
+    }
     send({ id: msg.id, result: { ok: true } });
     return;
   }
@@ -66,7 +69,7 @@ rl.on("line", (line) => {
     state.turnCount += 1;
     send({ id: msg.id, result: { turn: { id: "turn-" + state.turnCount } } });
 
-    if (scenario === "complete") {
+    if (scenario === "complete" || scenario === "stderr") {
       send({ method: "turn/completed", params: { usage: { input_tokens: 12, output_tokens: 8, total_tokens: 20 } } });
       return;
     }
@@ -81,6 +84,12 @@ rl.on("line", (line) => {
     if (scenario === "approval-tool") {
       send({ id: "approval-1", method: "approval/request", params: { kind: "command" } });
       send({ id: "tool-1", method: "item/tool/call", params: { name: "unsupported_tool", arguments: {} } });
+      setTimeout(() => send({ method: "turn/completed", params: {} }), 5);
+      return;
+    }
+
+    if (scenario === "other-message") {
+      send({ method: "item/progress", params: { step: "thinking" } });
       setTimeout(() => send({ method: "turn/completed", params: {} }), 5);
       return;
     }
@@ -217,6 +226,43 @@ describe("CodexAppServerClient", () => {
     );
   });
 
+  it("logs app-server stderr output for debugging stuck turns", async () => {
+    const { dir, scriptPath } = await createScenarioDir(
+      "codex-stderr",
+      "stderr",
+    );
+    const logger = {
+      debug: vi.fn(),
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+    };
+    const client = new CodexAppServerClient({
+      command: `${process.execPath} ${scriptPath}`,
+      workspacePath: dir,
+      approvalPolicy: "never",
+      threadSandbox: "workspace-write",
+      turnSandboxPolicy: { type: "workspaceWrite" },
+      readTimeoutMs: 500,
+      turnTimeoutMs: 1000,
+      logger,
+    });
+
+    await client.start();
+    await client.runTurn({
+      prompt: "Hello",
+      title: "ABC-2A: Example",
+    });
+    await client.stop();
+
+    expect(logger.warn).toHaveBeenCalledWith(
+      "codex app-server stderr",
+      expect.objectContaining({
+        chunk: "codex boot warning",
+      }),
+    );
+  });
+
   it("auto-approves approval requests and rejects unsupported tool calls without stalling", async () => {
     const { dir, scriptPath } = await createScenarioDir(
       "codex-approval",
@@ -246,6 +292,40 @@ describe("CodexAppServerClient", () => {
     );
     expect(events.map((event) => event.event)).toContain(
       "unsupported_tool_call",
+    );
+  });
+
+  it("includes the raw protocol method name on other_message events", async () => {
+    const { dir, scriptPath } = await createScenarioDir(
+      "codex-other-message",
+      "other-message",
+    );
+    const events: CodexRuntimeEvent[] = [];
+    const client = new CodexAppServerClient({
+      command: `${process.execPath} ${scriptPath}`,
+      workspacePath: dir,
+      approvalPolicy: "never",
+      threadSandbox: "workspace-write",
+      turnSandboxPolicy: { type: "workspaceWrite" },
+      readTimeoutMs: 500,
+      turnTimeoutMs: 1000,
+      onEvent: (event) => events.push(event),
+    });
+
+    await client.start();
+    await client.runTurn({
+      prompt: "Hello",
+      title: "ABC-3A: Example",
+    });
+    await client.stop();
+
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          event: "other_message",
+          message: "item/progress",
+        }),
+      ]),
     );
   });
 

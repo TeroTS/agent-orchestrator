@@ -133,9 +133,34 @@ describe("validateWorkflowForDispatch", () => {
     expect(validation.config.tracker.endpoint).toBe(
       "https://api.linear.app/graphql",
     );
+    expect(validation.config.tracker.dispatchState).toBe("In Progress");
+    expect(validation.config.tracker.handoffState).toBe("In Review");
     expect(validation.config.polling.intervalMs).toBe(30000);
     expect(validation.config.workspace.root).toContain("symphony_workspaces");
     expect(validation.config.codex.command).toBe("codex app-server");
+  });
+
+  it("reads configurable dispatch and handoff states from workflow config", () => {
+    const validation = validateWorkflowForDispatch({
+      config: {
+        tracker: {
+          kind: "linear",
+          project_slug: "demo",
+          api_key: "token",
+          dispatch_state: "Started",
+          handoff_state: "Review",
+        },
+      },
+      promptTemplate: "Prompt",
+    });
+
+    expect(validation.ok).toBe(true);
+    if (!validation.ok) {
+      throw new Error("expected validation success");
+    }
+
+    expect(validation.config.tracker.dispatchState).toBe("Started");
+    expect(validation.config.tracker.handoffState).toBe("Review");
   });
 
   it("fails preflight when required dispatch fields are missing", () => {

@@ -134,6 +134,66 @@ export class LinearTrackerClient {
     return connection.nodes.map(normalizeIssue);
   }
 
+  async transitionIssueToState(
+    issueId: string,
+    stateName: string,
+  ): Promise<LinearIssue> {
+    const stateId = await this.resolveWorkflowStateId(issueId, stateName);
+    const payload: GraphQLResponse<LinearIssueUpdatePayload> =
+      await this.request<LinearIssueUpdatePayload>({
+        query: issueUpdateMutation,
+        variables: {
+          id: issueId,
+          stateId,
+        },
+      });
+
+    const updatedIssue = payload.data?.issueUpdate?.issue;
+    if (!updatedIssue || !payload.data?.issueUpdate?.success) {
+      throw new TrackerError(
+        "linear_unknown_payload",
+        "Linear issue update payload was malformed.",
+      );
+    }
+
+    return normalizeIssue(updatedIssue);
+  }
+
+  private async resolveWorkflowStateId(
+    issueId: string,
+    stateName: string,
+  ): Promise<string> {
+    const payload: GraphQLResponse<LinearIssueTeamStatesPayload> =
+      await this.request<LinearIssueTeamStatesPayload>({
+        query: issueTeamStatesQuery,
+        variables: {
+          id: issueId,
+        },
+      });
+
+    const states = payload.data?.issue?.team?.states?.nodes;
+    if (!Array.isArray(states)) {
+      throw new TrackerError(
+        "linear_unknown_payload",
+        "Linear issue team states payload was malformed.",
+      );
+    }
+
+    const target = states.find(
+      (state) =>
+        typeof state?.name === "string" &&
+        state.name.toLowerCase() === stateName.toLowerCase(),
+    );
+    if (!target?.id) {
+      throw new TrackerError(
+        "linear_state_not_found",
+        `Linear workflow state '${stateName}' was not found for issue ${issueId}.`,
+      );
+    }
+
+    return target.id;
+  }
+
   private async request<T>(body: {
     query: string;
     variables: Record<string, unknown>;
@@ -201,6 +261,29 @@ interface LinearCandidateIssuesPayload {
 interface LinearIssueStatePayload {
   issues: {
     nodes: LinearIssueNode[];
+  };
+}
+
+interface LinearIssueTeamStatesPayload {
+  issue?: {
+    id?: string;
+    team?: {
+      id?: string;
+      states?: {
+        nodes?: Array<{
+          id?: string;
+          name?: string;
+          type?: string;
+        }>;
+      };
+    };
+  };
+}
+
+interface LinearIssueUpdatePayload {
+  issueUpdate?: {
+    success?: boolean;
+    issue?: LinearIssueNode;
   };
 }
 
@@ -353,6 +436,63 @@ const issueStatesByIdsQuery = `
         updatedAt
         state {
           name
+        }
+      }
+    }
+  }
+`;
+
+const issueTeamStatesQuery = `
+  query IssueTeamStates($id: String!) {
+    issue(id: $id) {
+      id
+      team {
+        id
+        states {
+          nodes {
+            id
+            name
+            type
+          }
+        }
+      }
+    }
+  }
+`;
+
+const issueUpdateMutation = `
+  mutation MoveIssueToState($id: String!, $stateId: String!) {
+    issueUpdate(id: $id, input: { stateId: $stateId }) {
+      success
+      issue {
+        id
+        identifier
+        title
+        description
+        priority
+        branchName
+        url
+        createdAt
+        updatedAt
+        state {
+          name
+        }
+        labels {
+          nodes {
+            name
+          }
+        }
+        inverseRelations {
+          nodes {
+            type
+            issue {
+              id
+              identifier
+              state {
+                name
+              }
+            }
+          }
         }
       }
     }

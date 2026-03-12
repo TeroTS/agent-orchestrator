@@ -83,6 +83,10 @@ export class AgentRunner {
       },
       readTimeoutMs: config.codex.readTimeoutMs,
       turnTimeoutMs: config.codex.turnTimeoutMs,
+      linearGraphql: {
+        endpoint: config.tracker.endpoint,
+        apiKey: config.tracker.apiKey,
+      },
       logger: this.logger,
       ...(input.onEvent ? { onEvent: input.onEvent } : {}),
     });
@@ -105,55 +109,38 @@ export class AgentRunner {
         workspace_path: workspace.path,
       });
 
-      for (
-        let turnNumber = 1;
-        turnNumber <= config.agent.maxTurns;
-        turnNumber += 1
-      ) {
-        if (input.signal?.aborted) {
-          throw new Error("run canceled");
-        }
+      if (input.signal?.aborted) {
+        throw new Error("run canceled");
+      }
 
-        const prompt =
-          turnNumber === 1
-            ? await renderPromptTemplate(this.workflowDefinition, {
-                issue,
-                attempt: input.attempt,
-              })
-            : buildContinuationPrompt(issue, turnNumber, config.agent.maxTurns);
+      const prompt = await renderPromptTemplate(this.workflowDefinition, {
+        issue,
+        attempt: input.attempt,
+      });
 
-        this.logger.info("run turn started", {
+      this.logger.info("run turn started", {
+        issue_id: issue.id,
+        issue_identifier: issue.identifier,
+        turn_number: 1,
+      });
+      await client.runTurn({
+        prompt,
+        title: `${issue.identifier}: ${issue.title}`,
+      });
+      this.logger.info("run turn completed", {
+        issue_id: issue.id,
+        issue_identifier: issue.identifier,
+        turn_number: 1,
+      });
+
+      const refreshedIssues = await this.issueStateRefresher([issue.id]);
+      if (refreshedIssues[0]) {
+        issue = refreshedIssues[0];
+        this.logger.info("issue state refreshed", {
           issue_id: issue.id,
           issue_identifier: issue.identifier,
-          turn_number: turnNumber,
+          state: issue.state,
         });
-        await client.runTurn({
-          prompt,
-          title: `${issue.identifier}: ${issue.title}`,
-        });
-        this.logger.info("run turn completed", {
-          issue_id: issue.id,
-          issue_identifier: issue.identifier,
-          turn_number: turnNumber,
-        });
-
-        const refreshedIssues = await this.issueStateRefresher([issue.id]);
-        if (refreshedIssues[0]) {
-          issue = refreshedIssues[0];
-          this.logger.info("issue state refreshed", {
-            issue_id: issue.id,
-            issue_identifier: issue.identifier,
-            state: issue.state,
-          });
-        }
-
-        if (
-          !config.tracker.activeStates
-            .map((state) => state.toLowerCase())
-            .includes(issue.state.toLowerCase())
-        ) {
-          break;
-        }
       }
 
       this.logger.info("run attempt completed", {
@@ -184,16 +171,4 @@ export class AgentRunner {
       });
     }
   }
-}
-
-function buildContinuationPrompt(
-  issue: OrchestrationIssue,
-  turnNumber: number,
-  maxTurns: number,
-): string {
-  return [
-    `Continue working on issue ${issue.identifier}.`,
-    `This is continuation turn ${turnNumber} of ${maxTurns}.`,
-    "Resume from the existing thread and workspace state.",
-  ].join("\n");
 }
