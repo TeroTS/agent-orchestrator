@@ -18,6 +18,7 @@ import {
 export interface AgentRunnerOptions {
   workflowDefinition: WorkflowDefinition;
   issueStateRefresher: (issueIds: string[]) => Promise<OrchestrationIssue[]>;
+  linearFetchFn?: typeof fetch;
   logger?: StructuredLogger;
 }
 
@@ -26,11 +27,13 @@ export class AgentRunner {
   private readonly issueStateRefresher: (
     issueIds: string[],
   ) => Promise<OrchestrationIssue[]>;
+  private readonly linearFetchFn: typeof fetch | undefined;
   private readonly logger: StructuredLogger;
 
   constructor(options: AgentRunnerOptions) {
     this.workflowDefinition = options.workflowDefinition;
     this.issueStateRefresher = options.issueStateRefresher;
+    this.linearFetchFn = options.linearFetchFn;
     this.logger = options.logger ?? createStructuredLogger();
   }
 
@@ -86,6 +89,8 @@ export class AgentRunner {
       linearGraphql: {
         endpoint: config.tracker.endpoint,
         apiKey: config.tracker.apiKey,
+        projectSlug: config.tracker.projectSlug,
+        ...(this.linearFetchFn ? { fetchFn: this.linearFetchFn } : {}),
       },
       logger: this.logger,
       ...(input.onEvent ? { onEvent: input.onEvent } : {}),
@@ -123,7 +128,7 @@ export class AgentRunner {
         issue_identifier: issue.identifier,
         turn_number: 1,
       });
-      await client.runTurn({
+      const turnResult = await client.runTurn({
         prompt,
         title: `${issue.identifier}: ${issue.title}`,
       });
@@ -132,6 +137,10 @@ export class AgentRunner {
         issue_identifier: issue.identifier,
         turn_number: 1,
       });
+
+      if (!turnResult.completionComment) {
+        throw new Error("Codex did not post a completion comment.");
+      }
 
       const refreshedIssues = await this.issueStateRefresher([issue.id]);
       if (refreshedIssues[0]) {

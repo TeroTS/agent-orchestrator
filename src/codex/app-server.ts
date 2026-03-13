@@ -5,6 +5,11 @@ import {
   createStructuredLogger,
   type StructuredLogger,
 } from "../observability/structured-logger.js";
+import {
+  LinearTrackerClient,
+  TrackerError,
+  type LinearComment,
+} from "../tracker/linear-client.js";
 
 export interface CodexRuntimeEvent {
   event: string;
@@ -31,6 +36,7 @@ export interface CodexAppServerClientOptions {
   linearGraphql?: {
     endpoint: string;
     apiKey: string;
+    projectSlug?: string;
     fetchFn?: typeof fetch;
   };
   logger?: StructuredLogger;
@@ -42,6 +48,7 @@ export interface CodexTurnResult {
   threadId: string;
   turnId: string;
   sessionId: string;
+  completionComment?: LinearComment | undefined;
 }
 
 export class CodexAppServerError extends Error {
@@ -64,6 +71,10 @@ interface CurrentTurn {
   threadId: string;
   turnId: string;
   sessionId: string;
+  completionComment?: LinearComment | undefined;
+  pendingToolCalls: number;
+  completionPending: boolean;
+  pendingCompletionPayload?: unknown;
   resolve: (result: CodexTurnResult) => void;
   reject: (reason?: unknown) => void;
   timer: NodeJS.Timeout;
@@ -151,21 +162,20 @@ export class CodexAppServerClient {
           name: "symphony-ts",
           version: "0.1.0",
         },
-        capabilities: {},
+        capabilities: {
+          experimentalApi: true,
+        },
       });
       this.notify("initialized", {});
       const threadResult = await this.request("thread/start", {
         approvalPolicy: this.options.approvalPolicy,
         sandbox: this.options.threadSandbox,
         cwd: workspacePath,
+        dynamicTools: this.options.linearGraphql
+          ? buildLinearDynamicToolSpecs()
+          : undefined,
         tools: this.options.linearGraphql
-          ? [
-              {
-                name: "linear_graphql",
-                description:
-                  "Execute a single GraphQL operation against Linear.",
-              },
-            ]
+          ? buildLegacyLinearToolSpecs()
           : undefined,
       });
 
@@ -248,6 +258,8 @@ export class CodexAppServerClient {
         threadId: this.threadId!,
         turnId,
         sessionId,
+        pendingToolCalls: 0,
+        completionPending: false,
         resolve: resolvePromise,
         reject: rejectPromise,
         timer,
@@ -350,13 +362,7 @@ export class CodexAppServerClient {
   private handleProtocolMessage(message: any): void {
     const method = typeof message.method === "string" ? message.method : "";
 
-    if (
-      this.turnStartPending &&
-      (method === "turn/completed" ||
-        method === "turn/failed" ||
-        method === "turn/cancelled" ||
-        method === "item/tool/requestUserInput")
-    ) {
+    if (this.turnStartPending && method) {
       this.bufferedTurnMessages.push(message);
       return;
     }
@@ -377,30 +383,39 @@ export class CodexAppServerClient {
     }
 
     if (method === "item/tool/call" && message.id != null) {
+      const toolName = readToolCallName(message.params);
+      const toolArguments = readToolCallArguments(message.params);
+
+      if (toolName === "linear_graphql" && this.options.linearGraphql) {
+        void this.handleLinearGraphqlToolCall(message);
+        return;
+      }
+
       if (
-        message.params?.name === "linear_graphql" &&
+        toolName === "linear_add_issue_comment" &&
         this.options.linearGraphql
       ) {
-        void this.handleLinearGraphqlToolCall(message);
+        void this.handleLinearAddIssueCommentToolCall(message);
         return;
       }
 
       this.send({
         id: message.id,
-        result: {
+        result: buildDynamicToolResponse({
           success: false,
           error: "unsupported_tool_call",
-        },
+        }),
       });
       this.logger.warn("codex unsupported tool call", {
-        tool_name:
-          typeof message.params?.name === "string"
-            ? message.params.name
-            : "unknown",
+        tool_name: toolName ?? "unknown",
       });
       this.emit({
         event: "unsupported_tool_call",
-        payload: message.params,
+        payload: {
+          ...message.params,
+          arguments: toolArguments,
+          tool: toolName,
+        },
       });
       return;
     }
@@ -431,23 +446,13 @@ export class CodexAppServerClient {
         return;
       }
 
-      clearTimeout(currentTurn.timer);
-      this.currentTurn = null;
-      this.emit({
-        event: "turn_completed",
-        sessionId: currentTurn.sessionId,
-        usage: extractUsage(message.params),
-        payload: message.params,
-      });
-      this.logger.info("codex turn completed", {
-        session_id: currentTurn.sessionId,
-      });
-      currentTurn.resolve({
-        outcome: "completed",
-        threadId: currentTurn.threadId,
-        turnId: currentTurn.turnId,
-        sessionId: currentTurn.sessionId,
-      });
+      if (currentTurn.pendingToolCalls > 0) {
+        currentTurn.completionPending = true;
+        currentTurn.pendingCompletionPayload = message.params;
+        return;
+      }
+
+      this.completeCurrentTurn(currentTurn, message.params);
       return;
     }
 
@@ -550,13 +555,14 @@ export class CodexAppServerClient {
       return;
     }
 
+    this.beginTurnToolCall();
     const result = await executeLinearGraphqlToolCall(
       message.params?.arguments,
       toolConfig,
     );
     this.send({
       id: message.id,
-      result,
+      result: buildDynamicToolResponse(result),
     });
     if (result.success === true) {
       this.logger.info("linear graphql tool executed", {});
@@ -577,6 +583,101 @@ export class CodexAppServerClient {
           ? "linear_graphql_executed"
           : "linear_graphql_failed",
       payload: result,
+    });
+    this.finishTurnToolCall();
+  }
+
+  private async handleLinearAddIssueCommentToolCall(
+    message: any,
+  ): Promise<void> {
+    const toolConfig = this.options.linearGraphql;
+    if (!toolConfig) {
+      return;
+    }
+
+    this.beginTurnToolCall();
+    const result = await executeLinearAddIssueCommentToolCall(
+      message.params?.arguments,
+      toolConfig,
+    );
+    this.send({
+      id: message.id,
+      result: buildDynamicToolResponse(result),
+    });
+    if (result.success === true) {
+      const currentTurn = this.currentTurn;
+      if (currentTurn) {
+        currentTurn.completionComment = result.comment;
+      }
+      this.logger.info("linear issue comment created", {
+        comment_id: result.comment.id,
+      });
+    } else {
+      this.logger.warn("linear issue comment failed", {
+        error_code:
+          typeof result.error === "object" &&
+          result.error !== null &&
+          "code" in result.error &&
+          typeof result.error.code === "string"
+            ? result.error.code
+            : "unknown",
+      });
+    }
+    this.emit({
+      event:
+        result.success === true
+          ? "linear_issue_comment_created"
+          : "linear_issue_comment_failed",
+      payload: result,
+    });
+    this.finishTurnToolCall();
+  }
+
+  private beginTurnToolCall(): void {
+    if (this.currentTurn) {
+      this.currentTurn.pendingToolCalls += 1;
+    }
+  }
+
+  private finishTurnToolCall(): void {
+    const currentTurn = this.currentTurn;
+    if (!currentTurn) {
+      return;
+    }
+
+    currentTurn.pendingToolCalls = Math.max(
+      0,
+      currentTurn.pendingToolCalls - 1,
+    );
+    if (currentTurn.pendingToolCalls === 0 && currentTurn.completionPending) {
+      const completionPayload = currentTurn.pendingCompletionPayload;
+      currentTurn.completionPending = false;
+      currentTurn.pendingCompletionPayload = undefined;
+      this.completeCurrentTurn(currentTurn, completionPayload);
+    }
+  }
+
+  private completeCurrentTurn(
+    currentTurn: CurrentTurn,
+    payload: unknown,
+  ): void {
+    clearTimeout(currentTurn.timer);
+    this.currentTurn = null;
+    this.emit({
+      event: "turn_completed",
+      sessionId: currentTurn.sessionId,
+      usage: extractUsage(payload),
+      payload,
+    });
+    this.logger.info("codex turn completed", {
+      session_id: currentTurn.sessionId,
+    });
+    currentTurn.resolve({
+      outcome: "completed",
+      threadId: currentTurn.threadId,
+      turnId: currentTurn.turnId,
+      sessionId: currentTurn.sessionId,
+      completionComment: currentTurn.completionComment,
     });
   }
 }
@@ -629,6 +730,163 @@ function summarizeProtocolMessage(
   }
 
   return method;
+}
+
+function readToolCallName(payload: unknown): string | null {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    return null;
+  }
+
+  const toolCall = payload as Record<string, unknown>;
+
+  if (typeof toolCall.tool === "string") {
+    return toolCall.tool;
+  }
+
+  if (typeof toolCall.name === "string") {
+    return toolCall.name;
+  }
+
+  return null;
+}
+
+function readToolCallArguments(payload: unknown): unknown {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    return undefined;
+  }
+
+  return (payload as Record<string, unknown>).arguments;
+}
+
+function buildDynamicToolResponse(result: Record<string, unknown>): Record<
+  string,
+  unknown
+> & {
+  contentItems: Array<{
+    type: "inputText";
+    text: string;
+  }>;
+  success: boolean;
+} {
+  return {
+    ...result,
+    contentItems: [
+      {
+        type: "inputText",
+        text: summarizeDynamicToolResult(result),
+      },
+    ],
+    success: result.success === true,
+  };
+}
+
+function summarizeDynamicToolResult(result: Record<string, unknown>): string {
+  if (result.success === true) {
+    if (
+      isPlainObject(result.comment) &&
+      typeof result.comment.id === "string"
+    ) {
+      return `Created Linear comment ${result.comment.id}.`;
+    }
+
+    if (isPlainObject(result.body)) {
+      return JSON.stringify(result.body);
+    }
+
+    return "Tool call completed successfully.";
+  }
+
+  const error = result.error;
+  if (typeof error === "string" && error.trim()) {
+    return error;
+  }
+
+  if (isPlainObject(error)) {
+    const code =
+      typeof error.code === "string" && error.code.trim() ? error.code : null;
+    const message =
+      typeof error.message === "string" && error.message.trim()
+        ? error.message
+        : null;
+    if (code && message) {
+      return `${code}: ${message}`;
+    }
+    if (message) {
+      return message;
+    }
+    if (code) {
+      return code;
+    }
+  }
+
+  return "Tool call failed.";
+}
+
+function buildLegacyLinearToolSpecs(): Array<{
+  name: string;
+  description: string;
+}> {
+  return [
+    {
+      name: "linear_graphql",
+      description: "Execute a single GraphQL operation against Linear.",
+    },
+    {
+      name: "linear_add_issue_comment",
+      description:
+        "Create a Linear issue comment with a short completion summary.",
+    },
+  ];
+}
+
+function buildLinearDynamicToolSpecs(): Array<{
+  name: string;
+  description: string;
+  inputSchema: Record<string, unknown>;
+}> {
+  return [
+    {
+      name: "linear_graphql",
+      description: "Execute a single GraphQL operation against Linear.",
+      inputSchema: {
+        type: "object",
+        additionalProperties: false,
+        required: ["query"],
+        properties: {
+          query: {
+            type: "string",
+            description: "A single GraphQL query or mutation document.",
+          },
+          variables: {
+            type: "object",
+            description: "Optional GraphQL variables object.",
+            additionalProperties: true,
+          },
+        },
+      },
+    },
+    {
+      name: "linear_add_issue_comment",
+      description:
+        "Create a Linear issue comment with a short completion summary.",
+      inputSchema: {
+        type: "object",
+        additionalProperties: false,
+        required: ["issueId", "body"],
+        properties: {
+          issueId: {
+            type: "string",
+            description: "The Linear issue id for the comment.",
+          },
+          body: {
+            type: "string",
+            description:
+              "A short plain-text summary of what was completed and how it was validated.",
+          },
+        },
+      },
+    },
+  ];
 }
 
 async function executeLinearGraphqlToolCall(
@@ -711,6 +969,74 @@ async function executeLinearGraphqlToolCall(
       "linear_api_request",
       error instanceof Error ? error.message : String(error),
     );
+  }
+}
+
+async function executeLinearAddIssueCommentToolCall(
+  input: unknown,
+  config: NonNullable<CodexAppServerClientOptions["linearGraphql"]>,
+): Promise<
+  | { success: true; comment: LinearComment }
+  | {
+      success: false;
+      error: {
+        code: string;
+        message: string;
+      };
+    }
+> {
+  const parsed = parseLinearAddIssueCommentArguments(input);
+  if (!parsed.ok) {
+    return {
+      success: false,
+      error: parsed.error,
+    };
+  }
+
+  if (!config.endpoint.trim() || !config.apiKey.trim()) {
+    return {
+      success: false,
+      error: {
+        code: "linear_graphql_missing_auth",
+        message:
+          "Linear GraphQL tool is not configured with endpoint and auth.",
+      },
+    };
+  }
+
+  try {
+    const client = new LinearTrackerClient({
+      endpoint: config.endpoint,
+      apiKey: config.apiKey,
+      projectSlug: config.projectSlug ?? "",
+      ...(config.fetchFn ? { fetchFn: config.fetchFn } : {}),
+    });
+    const comment = await client.createIssueComment(
+      parsed.issueId,
+      parsed.body,
+    );
+    return {
+      success: true,
+      comment,
+    };
+  } catch (error) {
+    if (error instanceof TrackerError) {
+      return {
+        success: false,
+        error: {
+          code: error.code,
+          message: error.message,
+        },
+      };
+    }
+
+    return {
+      success: false,
+      error: {
+        code: "linear_api_request",
+        message: error instanceof Error ? error.message : String(error),
+      },
+    };
   }
 }
 
@@ -801,6 +1127,68 @@ function parseLinearGraphqlArguments(input: unknown):
     ok: true,
     query,
     variables: (variables as Record<string, unknown> | undefined) ?? {},
+  };
+}
+
+function parseLinearAddIssueCommentArguments(input: unknown):
+  | { ok: true; issueId: string; body: string }
+  | {
+      ok: false;
+      error: {
+        code: string;
+        message: string;
+      };
+    } {
+  if (!isPlainObject(input)) {
+    return {
+      ok: false,
+      error: {
+        code: "linear_issue_comment_invalid_input",
+        message: "tool input must be an object with issueId and body.",
+      },
+    };
+  }
+
+  const extraKeys = Object.keys(input).filter(
+    (key) => key !== "issueId" && key !== "body",
+  );
+  if (extraKeys.length > 0) {
+    return {
+      ok: false,
+      error: {
+        code: "linear_issue_comment_invalid_input",
+        message: `unexpected fields: ${extraKeys.join(", ")}`,
+      },
+    };
+  }
+
+  const issueId = typeof input.issueId === "string" ? input.issueId.trim() : "";
+  const body = typeof input.body === "string" ? input.body.trim() : "";
+
+  if (!issueId) {
+    return {
+      ok: false,
+      error: {
+        code: "linear_issue_comment_invalid_input",
+        message: "issueId must be a non-empty string.",
+      },
+    };
+  }
+
+  if (!body) {
+    return {
+      ok: false,
+      error: {
+        code: "linear_issue_comment_invalid_input",
+        message: "body must be a non-empty string.",
+      },
+    };
+  }
+
+  return {
+    ok: true,
+    issueId,
+    body,
   };
 }
 

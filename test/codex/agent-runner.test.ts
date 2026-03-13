@@ -56,6 +56,20 @@ rl.on("line", async (line) => {
     const prompt = msg.params.input[0].text;
     await appendFile(promptLogPath, JSON.stringify(prompt) + "\\n", "utf8");
     send({ id: msg.id, result: { turn: { id: "turn-" + turnCount } } });
+      send({
+        id: "tool-comment-1",
+        method: "item/tool/call",
+        params: {
+          tool: "linear_add_issue_comment",
+          callId: "call-comment-1",
+          threadId: "thread-1",
+          turnId: "turn-1",
+          arguments: {
+            issueId: "issue-1",
+            body: "Implemented the requested change and validated it."
+        }
+      }
+    });
     send({ method: "turn/completed", params: {} });
   }
 });
@@ -78,6 +92,7 @@ rl.on("line", async (line) => {
         promptLogPath,
       ),
       issueStateRefresher: tracker.fetchIssueStatesByIds,
+      linearFetchFn: mockLinearCommentFetch(),
     });
 
     const result = await runner.runAttempt({
@@ -137,6 +152,20 @@ rl.on("line", async (line) => {
     const prompt = msg.params.input[0].text;
     await appendFile(promptLogPath, JSON.stringify(prompt) + "\\n", "utf8");
     send({ id: msg.id, result: { turn: { id: "turn-" + turnCount } } });
+      send({
+        id: "tool-comment-1",
+        method: "item/tool/call",
+        params: {
+          tool: "linear_add_issue_comment",
+          callId: "call-comment-1",
+          threadId: "thread-1",
+          turnId: "turn-1",
+          arguments: {
+            issueId: "issue-1",
+            body: "Implemented the requested change and validated it."
+        }
+      }
+    });
     send({ method: "turn/completed", params: {} });
   }
 });
@@ -162,6 +191,7 @@ rl.on("line", async (line) => {
         3,
       ),
       issueStateRefresher: tracker.fetchIssueStatesByIds,
+      linearFetchFn: mockLinearCommentFetch(),
     });
 
     const result = await runner.runAttempt({
@@ -214,6 +244,20 @@ rl.on("line", (line) => {
   }
   if (msg.method === "turn/start") {
     send({ id: msg.id, result: { turn: { id: "turn-1" } } });
+      send({
+        id: "tool-comment-1",
+        method: "item/tool/call",
+        params: {
+          tool: "linear_add_issue_comment",
+          callId: "call-comment-1",
+          threadId: "thread-1",
+          turnId: "turn-1",
+          arguments: {
+            issueId: "issue-1",
+            body: "Implemented the requested change and validated it."
+        }
+      }
+    });
     send({ method: "turn/completed", params: {} });
   }
 });
@@ -239,6 +283,7 @@ rl.on("line", (line) => {
         .mockResolvedValue([
           makeIssue({ id: "issue-1", identifier: "ABC-1", state: "Done" }),
         ]),
+      linearFetchFn: mockLinearCommentFetch(),
       logger,
     });
 
@@ -304,6 +349,20 @@ rl.on("line", async (line) => {
   }
   if (msg.method === "turn/start") {
     send({ id: msg.id, result: { turn: { id: "turn-1" } } });
+      send({
+        id: "tool-comment-1",
+        method: "item/tool/call",
+        params: {
+          tool: "linear_add_issue_comment",
+          callId: "call-comment-1",
+          threadId: "thread-1",
+          turnId: "turn-1",
+          arguments: {
+            issueId: "issue-1",
+            body: "Implemented the requested change and validated it."
+        }
+      }
+    });
     send({ method: "turn/completed", params: {} });
   }
 });
@@ -324,6 +383,7 @@ rl.on("line", async (line) => {
         .mockResolvedValue([
           makeIssue({ id: "issue-1", identifier: "ABC-1", state: "Done" }),
         ]),
+      linearFetchFn: mockLinearCommentFetch(),
     });
 
     await runner.runAttempt({
@@ -338,11 +398,87 @@ rl.on("line", async (line) => {
     const threadStartParams = JSON.parse(
       await readFile(threadStartLogPath, "utf8"),
     );
+    expect(threadStartParams.dynamicTools).toEqual([
+      expect.objectContaining({
+        name: "linear_graphql",
+        inputSchema: expect.any(Object),
+      }),
+      expect.objectContaining({
+        name: "linear_add_issue_comment",
+        inputSchema: expect.any(Object),
+      }),
+    ]);
     expect(threadStartParams.tools).toEqual([
       expect.objectContaining({
         name: "linear_graphql",
       }),
+      expect.objectContaining({
+        name: "linear_add_issue_comment",
+      }),
     ]);
+  });
+
+  it("requires a completion comment before treating the run as successful", async () => {
+    const workspaceRoot = await mkdtemp(
+      join(tmpdir(), "agent-runner-workspace-"),
+    );
+    tempDirs.push(workspaceRoot);
+    const appServerDir = await mkdtemp(join(tmpdir(), "agent-runner-server-"));
+    tempDirs.push(appServerDir);
+    const promptLogPath = join(appServerDir, "prompts.log");
+    const scriptPath = join(appServerDir, "fake-app-server.mjs");
+
+    await writeFile(
+      scriptPath,
+      `
+import readline from "node:readline";
+
+const rl = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });
+
+function send(message) {
+  process.stdout.write(JSON.stringify(message) + "\\n");
+}
+
+rl.on("line", (line) => {
+  const msg = JSON.parse(line);
+  if (msg.method === "initialize") {
+    send({ id: msg.id, result: { ok: true } });
+    return;
+  }
+  if (msg.method === "thread/start") {
+    send({ id: msg.id, result: { thread: { id: "thread-1" } } });
+    return;
+  }
+  if (msg.method === "turn/start") {
+    send({ id: msg.id, result: { turn: { id: "turn-1" } } });
+    send({ method: "turn/completed", params: {} });
+  }
+});
+`,
+      "utf8",
+    );
+
+    const runner = new AgentRunner({
+      workflowDefinition: validWorkflowDefinition(
+        workspaceRoot,
+        `${process.execPath} ${scriptPath}`,
+        promptLogPath,
+      ),
+      issueStateRefresher: vi.fn().mockResolvedValue([]),
+    });
+
+    await expect(
+      runner.runAttempt({
+        issue: makeIssue({
+          id: "issue-1",
+          identifier: "ABC-1",
+          state: "In Progress",
+        }),
+        attempt: null,
+      }),
+    ).rejects.toMatchObject({
+      message: "Codex did not post a completion comment.",
+    });
   });
 });
 
@@ -393,4 +529,29 @@ function makeIssue(
     createdAt: overrides.createdAt ?? new Date("2026-03-01T10:00:00.000Z"),
     updatedAt: overrides.updatedAt ?? new Date("2026-03-01T10:00:00.000Z"),
   };
+}
+
+function mockLinearCommentFetch() {
+  return vi.fn().mockResolvedValue(
+    new Response(
+      JSON.stringify({
+        data: {
+          commentCreate: {
+            success: true,
+            comment: {
+              id: "comment-1",
+              body: "Implemented the requested change and validated it.",
+              url: "https://linear.app/demo/comment/comment-1",
+            },
+          },
+        },
+      }),
+      {
+        status: 200,
+        headers: {
+          "content-type": "application/json",
+        },
+      },
+    ),
+  );
 }

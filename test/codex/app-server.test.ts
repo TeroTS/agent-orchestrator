@@ -30,7 +30,7 @@ async function createScenarioDir(
 import readline from "node:readline";
 
 const scenario = ${JSON.stringify(scenario)};
-const state = { turnCount: 0 };
+  const state = { turnCount: 0, experimentalApi: false };
 const rl = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });
 
 function send(message) {
@@ -44,11 +44,24 @@ function sendRaw(text) {
 rl.on("line", (line) => {
   const msg = JSON.parse(line);
   if (typeof msg.id === "string" && msg.id.startsWith("tool-") && "result" in msg) {
+    if (scenario === "dynamic-tool-response-required") {
+      const result = msg.result;
+      if (
+        !result ||
+        typeof result !== "object" ||
+        !Array.isArray(result.contentItems) ||
+        typeof result.success !== "boolean"
+      ) {
+        send({ method: "turn/failed", params: { reason: "dynamic_tool_response_invalid" } });
+        return;
+      }
+    }
     send({ method: "notification", params: { toolResult: msg.result } });
     return;
   }
 
   if (msg.method === "initialize") {
+    state.experimentalApi = Boolean(msg.params?.capabilities?.experimentalApi);
     if (scenario === "stderr") {
       process.stderr.write("codex boot warning\\n");
     }
@@ -60,6 +73,22 @@ rl.on("line", (line) => {
     if (scenario === "linear-graphql" && (!msg.params.tools || msg.params.tools[0]?.name !== "linear_graphql")) {
       send({ method: "turn/failed", params: { reason: "tool_not_advertised" } });
       return;
+    }
+    if (scenario === "dynamic-tools-required") {
+      if (!state.experimentalApi) {
+        send({ method: "turn/failed", params: { reason: "experimental_api_not_enabled" } });
+        return;
+      }
+      const dynamicTools = msg.params.dynamicTools;
+      if (!Array.isArray(dynamicTools) || dynamicTools.length < 2) {
+        send({ method: "turn/failed", params: { reason: "dynamic_tools_not_advertised" } });
+        return;
+      }
+      const commentTool = dynamicTools.find((tool) => tool?.name === "linear_add_issue_comment");
+      if (!commentTool || typeof commentTool.description !== "string" || !commentTool.inputSchema) {
+        send({ method: "turn/failed", params: { reason: "comment_tool_schema_missing" } });
+        return;
+      }
     }
     send({ id: msg.id, result: { thread: { id: "thread-1" } } });
     return;
@@ -83,7 +112,7 @@ rl.on("line", (line) => {
 
     if (scenario === "approval-tool") {
       send({ id: "approval-1", method: "approval/request", params: { kind: "command" } });
-      send({ id: "tool-1", method: "item/tool/call", params: { name: "unsupported_tool", arguments: {} } });
+      send({ id: "tool-1", method: "item/tool/call", params: { tool: "unsupported_tool", callId: "call-1", threadId: "thread-1", turnId: "turn-1", arguments: {} } });
       setTimeout(() => send({ method: "turn/completed", params: {} }), 5);
       return;
     }
@@ -103,14 +132,36 @@ rl.on("line", (line) => {
       return;
     }
 
-    if (scenario === "linear-graphql" || scenario === "linear-graphql-status-error" || scenario === "linear-graphql-invalid-json" || scenario === "linear-graphql-errors") {
+    if (scenario === "linear-graphql" || scenario === "linear-graphql-status-error" || scenario === "linear-graphql-invalid-json" || scenario === "linear-graphql-errors" || scenario === "dynamic-tool-response-required") {
       send({
         id: "tool-graphql-1",
         method: "item/tool/call",
         params: {
-          name: "linear_graphql",
+          tool: "linear_graphql",
+          callId: "call-graphql-1",
+          threadId: "thread-1",
+          turnId: "turn-1",
           arguments: {
             query: "query Viewer { viewer { id } }"
+          }
+        }
+      });
+      setTimeout(() => send({ method: "turn/completed", params: {} }), 5);
+      return;
+    }
+
+    if (scenario === "linear-add-issue-comment") {
+      send({
+        id: "tool-comment-1",
+        method: "item/tool/call",
+        params: {
+          tool: "linear_add_issue_comment",
+          callId: "call-comment-1",
+          threadId: "thread-1",
+          turnId: "turn-1",
+          arguments: {
+            issueId: "issue-1",
+            body: "Implemented the fix and verified it with npm test."
           }
         }
       });
@@ -123,7 +174,10 @@ rl.on("line", (line) => {
         id: "tool-graphql-1",
         method: "item/tool/call",
         params: {
-          name: "linear_graphql",
+          tool: "linear_graphql",
+          callId: "call-graphql-1",
+          threadId: "thread-1",
+          turnId: "turn-1",
           arguments: {
             query: "   ",
             variables: [],
@@ -140,7 +194,10 @@ rl.on("line", (line) => {
         id: "tool-graphql-1",
         method: "item/tool/call",
         params: {
-          name: "linear_graphql",
+          tool: "linear_graphql",
+          callId: "call-graphql-1",
+          threadId: "thread-1",
+          turnId: "turn-1",
           arguments: {
             query: "query One { viewer { id } } query Two { viewer { id } }"
           }
@@ -427,8 +484,8 @@ describe("CodexAppServerClient", () => {
       expect.arrayContaining([
         expect.objectContaining({
           event: "notification",
-          payload: {
-            toolResult: {
+          payload: expect.objectContaining({
+            toolResult: expect.objectContaining({
               success: true,
               body: {
                 data: {
@@ -437,11 +494,169 @@ describe("CodexAppServerClient", () => {
                   },
                 },
               },
-            },
-          },
+              contentItems: [
+                {
+                  type: "inputText",
+                  text: expect.any(String),
+                },
+              ],
+            }),
+          }),
         }),
       ]),
     );
+  });
+
+  it("returns schema-compliant dynamic tool responses with content items", async () => {
+    const { dir, scriptPath } = await createScenarioDir(
+      "codex-dynamic-tool-response",
+      "dynamic-tool-response-required",
+    );
+    const events: CodexRuntimeEvent[] = [];
+    const fetchFn = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ data: { viewer: { id: "viewer-1" } } }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    const client = new CodexAppServerClient({
+      command: `${process.execPath} ${scriptPath}`,
+      workspacePath: dir,
+      approvalPolicy: "never",
+      threadSandbox: "workspace-write",
+      turnSandboxPolicy: { type: "workspaceWrite" },
+      readTimeoutMs: 500,
+      turnTimeoutMs: 1000,
+      onEvent: (event) => events.push(event),
+      linearGraphql: {
+        endpoint: "https://api.linear.app/graphql",
+        apiKey: "linear-token",
+        fetchFn,
+      },
+    });
+
+    await client.start();
+    await client.runTurn({
+      prompt: "Hello",
+      title: "ABC-6B: Example",
+    });
+    await client.stop();
+
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          event: "notification",
+          payload: expect.objectContaining({
+            toolResult: expect.objectContaining({
+              success: true,
+              contentItems: [
+                {
+                  type: "inputText",
+                  text: expect.any(String),
+                },
+              ],
+            }),
+          }),
+        }),
+      ]),
+    );
+  });
+
+  it("advertises and executes the linear_add_issue_comment tool and returns completion comment metadata", async () => {
+    const { dir, scriptPath } = await createScenarioDir(
+      "codex-linear-add-comment",
+      "linear-add-issue-comment",
+    );
+    const events: CodexRuntimeEvent[] = [];
+    const fetchFn = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          data: {
+            commentCreate: {
+              success: true,
+              comment: {
+                id: "comment-1",
+                body: "Implemented the fix and verified it with npm test.",
+                url: "https://linear.app/demo/comment/comment-1",
+              },
+            },
+          },
+        }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        },
+      ),
+    );
+    const client = new CodexAppServerClient({
+      command: `${process.execPath} ${scriptPath}`,
+      workspacePath: dir,
+      approvalPolicy: "never",
+      threadSandbox: "workspace-write",
+      turnSandboxPolicy: { type: "workspaceWrite" },
+      readTimeoutMs: 500,
+      turnTimeoutMs: 1000,
+      onEvent: (event) => events.push(event),
+      linearGraphql: {
+        endpoint: "https://api.linear.app/graphql",
+        apiKey: "linear-token",
+        fetchFn,
+      },
+    });
+
+    await client.start();
+    const result = await client.runTurn({
+      prompt: "Hello",
+      title: "ABC-6A: Example",
+    });
+    await client.stop();
+
+    expect(result.completionComment).toEqual({
+      id: "comment-1",
+      body: "Implemented the fix and verified it with npm test.",
+      url: "https://linear.app/demo/comment/comment-1",
+    });
+    expect(events.map((event) => event.event)).toContain(
+      "linear_issue_comment_created",
+    );
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          event: "notification",
+          payload: expect.objectContaining({
+            toolResult: expect.objectContaining({
+              success: true,
+              comment: expect.objectContaining({
+                id: "comment-1",
+              }),
+            }),
+          }),
+        }),
+      ]),
+    );
+  });
+
+  it("opts into experimental dynamic tools and advertises input schemas on thread/start", async () => {
+    const { dir, scriptPath } = await createScenarioDir(
+      "codex-dynamic-tools",
+      "dynamic-tools-required",
+    );
+    const client = new CodexAppServerClient({
+      command: `${process.execPath} ${scriptPath}`,
+      workspacePath: dir,
+      approvalPolicy: "never",
+      threadSandbox: "workspace-write",
+      turnSandboxPolicy: { type: "workspaceWrite" },
+      readTimeoutMs: 500,
+      turnTimeoutMs: 1000,
+      linearGraphql: {
+        endpoint: "https://api.linear.app/graphql",
+        apiKey: "linear-token",
+      },
+    });
+
+    await client.start();
+    await client.stop();
   });
 
   it("rejects malformed linear_graphql input before making a request", async () => {

@@ -253,6 +253,71 @@ describe("LinearTrackerClient", () => {
     });
   });
 
+  it("creates an issue comment and returns the created comment metadata", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse({
+        data: {
+          commentCreate: {
+            success: true,
+            comment: {
+              id: "comment-1",
+              body: "Implemented the fix and ran npm test.",
+              url: "https://linear.app/demo/comment/comment-1",
+            },
+          },
+        },
+      }),
+    );
+
+    const client = new LinearTrackerClient({
+      endpoint: "https://api.linear.app/graphql",
+      apiKey: "linear-token",
+      projectSlug: "demo-project",
+      fetchFn: fetchMock,
+    });
+
+    const comment = await client.createIssueComment(
+      "issue-1",
+      "Implemented the fix and ran npm test.",
+    );
+
+    const requestBody = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    expect(requestBody.query).toContain("CreateIssueComment");
+    expect(requestBody.variables).toEqual({
+      issueId: "issue-1",
+      body: "Implemented the fix and ran npm test.",
+    });
+    expect(comment).toEqual({
+      id: "comment-1",
+      body: "Implemented the fix and ran npm test.",
+      url: "https://linear.app/demo/comment/comment-1",
+    });
+  });
+
+  it("fails with a typed error when comment creation returns a malformed payload", async () => {
+    const client = new LinearTrackerClient({
+      endpoint: "https://api.linear.app/graphql",
+      apiKey: "linear-token",
+      projectSlug: "demo-project",
+      fetchFn: vi.fn().mockResolvedValue(
+        jsonResponse({
+          data: {
+            commentCreate: {
+              success: true,
+              comment: null,
+            },
+          },
+        }),
+      ),
+    });
+
+    await expect(
+      client.createIssueComment("issue-1", "Implemented the fix."),
+    ).rejects.toMatchObject({
+      code: "linear_unknown_payload",
+    });
+  });
+
   it("fails with a typed error when the named destination workflow state is missing", async () => {
     const client = new LinearTrackerClient({
       endpoint: "https://api.linear.app/graphql",

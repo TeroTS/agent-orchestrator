@@ -22,5 +22,6 @@ describe("repository WORKFLOW.md", () => {
     expect(validation.ok).toBe(true);
     expect(definition.promptTemplate).not.toContain("cd elixir");
     expect(definition.promptTemplate).toContain("{{ issue.identifier }}");
+    expect(definition.promptTemplate).toContain("linear_add_issue_comment");
   });
 });

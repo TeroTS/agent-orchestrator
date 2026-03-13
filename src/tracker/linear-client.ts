@@ -19,6 +19,12 @@ export interface LinearIssue {
   updatedAt: Date | null;
 }
 
+export interface LinearComment {
+  id: string;
+  body: string;
+  url: string | null;
+}
+
 export interface LinearTrackerClientOptions {
   endpoint: string;
   apiKey: string;
@@ -159,6 +165,45 @@ export class LinearTrackerClient {
     return normalizeIssue(updatedIssue);
   }
 
+  async createIssueComment(
+    issueId: string,
+    body: string,
+  ): Promise<LinearComment> {
+    if (!body.trim()) {
+      throw new TrackerError(
+        "linear_invalid_comment_body",
+        "Linear issue comment body must be non-empty.",
+      );
+    }
+
+    const payload: GraphQLResponse<LinearCommentCreatePayload> =
+      await this.request<LinearCommentCreatePayload>({
+        query: issueCommentCreateMutation,
+        variables: {
+          issueId,
+          body,
+        },
+      });
+
+    const createdComment = payload.data?.commentCreate?.comment;
+    if (
+      !payload.data?.commentCreate?.success ||
+      !createdComment?.id ||
+      typeof createdComment.body !== "string"
+    ) {
+      throw new TrackerError(
+        "linear_unknown_payload",
+        "Linear comment creation payload was malformed.",
+      );
+    }
+
+    return {
+      id: createdComment.id,
+      body: createdComment.body,
+      url: createdComment.url ?? null,
+    };
+  }
+
   private async resolveWorkflowStateId(
     issueId: string,
     stateName: string,
@@ -284,6 +329,17 @@ interface LinearIssueUpdatePayload {
   issueUpdate?: {
     success?: boolean;
     issue?: LinearIssueNode;
+  };
+}
+
+interface LinearCommentCreatePayload {
+  commentCreate?: {
+    success?: boolean;
+    comment?: {
+      id?: string;
+      body?: string;
+      url?: string | null;
+    } | null;
   };
 }
 
@@ -494,6 +550,19 @@ const issueUpdateMutation = `
             }
           }
         }
+      }
+    }
+  }
+`;
+
+const issueCommentCreateMutation = `
+  mutation CreateIssueComment($issueId: String!, $body: String!) {
+    commentCreate(input: { issueId: $issueId, body: $body }) {
+      success
+      comment {
+        id
+        body
+        url
       }
     }
   }
