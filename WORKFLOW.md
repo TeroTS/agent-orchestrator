@@ -2,7 +2,7 @@
 tracker:
   kind: linear
   api_key: $LINEAR_API_KEY
-  project_slug: project_slug_here
+  project_slug: $SYMPHONY_LINEAR_PROJECT_SLUG
   dispatch_state: In Progress
   handoff_state: In Review
   active_states:
