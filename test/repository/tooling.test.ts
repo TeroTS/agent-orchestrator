@@ -101,5 +101,11 @@ describe("repository tooling", () => {
         "utf8",
       ),
     ).resolves.toEqual(expect.stringContaining("Linear Issue:"));
+    await expect(
+      readFile(resolve(repoRoot, ".npmrc"), "utf8"),
+    ).resolves.toMatch(/^registry=https:\/\/registry\.npmjs\.org\/\s*$/m);
+    await expect(
+      readFile(resolve(repoRoot, "package-lock.json"), "utf8"),
+    ).resolves.not.toContain("mavenproxy.aktia.biz");
   });
 });
