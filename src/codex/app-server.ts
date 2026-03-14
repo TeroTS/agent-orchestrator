@@ -1,5 +1,7 @@
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { resolve } from "node:path";
+import { join, resolve } from "node:path";
+import { tmpdir } from "node:os";
 
 import {
   createStructuredLogger,
@@ -39,9 +41,49 @@ export interface CodexAppServerClientOptions {
     projectSlug?: string;
     fetchFn?: typeof fetch;
   };
+  issueDelivery?: {
+    issueId: string;
+    identifier: string;
+    title: string;
+    url: string | null;
+    branchName: string | null;
+    commandRunner?: DeliveryCommandRunner;
+    readFileFn?: typeof readFile;
+  };
   logger?: StructuredLogger;
   onEvent?: (event: CodexRuntimeEvent) => void;
 }
+
+export interface DeliveryCommandInput {
+  command: string;
+  args: string[];
+  cwd: string;
+}
+
+export interface DeliveryCommandResult {
+  stdout: string;
+  stderr: string;
+  exitCode: number;
+}
+
+export type DeliveryCommandRunner = (
+  input: DeliveryCommandInput,
+) => Promise<DeliveryCommandResult>;
+
+export interface TicketDeliveryResult {
+  prUrl: string;
+  commentId: string;
+  branch: string;
+  commitSha?: string | undefined;
+}
+
+type ToolErrorResult = {
+  success: false;
+  error: {
+    code: string;
+    message: string;
+  };
+};
 
 export interface CodexTurnResult {
   outcome: "completed";
@@ -49,6 +91,7 @@ export interface CodexTurnResult {
   turnId: string;
   sessionId: string;
   completionComment?: LinearComment | undefined;
+  deliveryResult?: TicketDeliveryResult | undefined;
 }
 
 export class CodexAppServerError extends Error {
@@ -72,6 +115,7 @@ interface CurrentTurn {
   turnId: string;
   sessionId: string;
   completionComment?: LinearComment | undefined;
+  deliveryResult?: TicketDeliveryResult | undefined;
   pendingToolCalls: number;
   completionPending: boolean;
   pendingCompletionPayload?: unknown;
@@ -172,7 +216,7 @@ export class CodexAppServerClient {
         sandbox: this.options.threadSandbox,
         cwd: workspacePath,
         dynamicTools: this.options.linearGraphql
-          ? buildLinearDynamicToolSpecs()
+          ? buildLinearDynamicToolSpecs(Boolean(this.options.issueDelivery))
           : undefined,
         tools: this.options.linearGraphql
           ? buildLegacyLinearToolSpecs()
@@ -396,6 +440,15 @@ export class CodexAppServerClient {
         this.options.linearGraphql
       ) {
         void this.handleLinearAddIssueCommentToolCall(message);
+        return;
+      }
+
+      if (
+        toolName === "complete_ticket_delivery" &&
+        this.options.linearGraphql &&
+        this.options.issueDelivery
+      ) {
+        void this.handleCompleteTicketDeliveryToolCall(message);
         return;
       }
 
@@ -645,6 +698,59 @@ export class CodexAppServerClient {
     this.finishTurnToolCall();
   }
 
+  private async handleCompleteTicketDeliveryToolCall(
+    message: any,
+  ): Promise<void> {
+    const toolConfig = this.options.linearGraphql;
+    const deliveryConfig = this.options.issueDelivery;
+    if (!toolConfig || !deliveryConfig) {
+      return;
+    }
+
+    this.beginTurnToolCall();
+    const result = await executeCompleteTicketDeliveryToolCall(
+      message.params?.arguments,
+      deliveryConfig,
+      toolConfig,
+      resolve(this.options.workspacePath),
+      this.logger,
+    );
+    this.send({
+      id: message.id,
+      result: buildDynamicToolResponse(result),
+    });
+    if (result.success === true) {
+      const currentTurn = this.currentTurn;
+      if (currentTurn) {
+        currentTurn.completionComment = result.comment;
+        currentTurn.deliveryResult = result.delivery;
+      }
+      this.logger.info("ticket delivery completed", {
+        branch: result.delivery.branch,
+        comment_id: result.comment.id,
+        pr_url: result.delivery.prUrl,
+      });
+    } else {
+      this.logger.warn("ticket delivery failed", {
+        error_code:
+          typeof result.error === "object" &&
+          result.error !== null &&
+          "code" in result.error &&
+          typeof result.error.code === "string"
+            ? result.error.code
+            : "unknown",
+      });
+    }
+    this.emit({
+      event:
+        result.success === true
+          ? "ticket_delivery_completed"
+          : "ticket_delivery_failed",
+      payload: result,
+    });
+    this.finishTurnToolCall();
+  }
+
   private beginTurnToolCall(): void {
     if (this.currentTurn) {
       this.currentTurn.pendingToolCalls += 1;
@@ -690,6 +796,7 @@ export class CodexAppServerClient {
       turnId: currentTurn.turnId,
       sessionId: currentTurn.sessionId,
       completionComment: currentTurn.completionComment,
+      deliveryResult: currentTurn.deliveryResult,
     });
   }
 }
@@ -955,12 +1062,16 @@ function buildLegacyLinearToolSpecs(): Array<{
   ];
 }
 
-function buildLinearDynamicToolSpecs(): Array<{
+function buildLinearDynamicToolSpecs(includeTicketDelivery: boolean): Array<{
   name: string;
   description: string;
   inputSchema: Record<string, unknown>;
 }> {
-  return [
+  const specs: Array<{
+    name: string;
+    description: string;
+    inputSchema: Record<string, unknown>;
+  }> = [
     {
       name: "linear_graphql",
       description: "Execute a single GraphQL operation against Linear.",
@@ -1003,6 +1114,32 @@ function buildLinearDynamicToolSpecs(): Array<{
       },
     },
   ];
+
+  if (includeTicketDelivery) {
+    specs.push({
+      name: "complete_ticket_delivery",
+      description:
+        "Commit workspace changes, publish or update the GitHub pull request, and post the final Linear completion comment.",
+      inputSchema: {
+        type: "object",
+        additionalProperties: false,
+        required: ["summary", "validation"],
+        properties: {
+          summary: {
+            type: "string",
+            description: "A short plain-text summary of what changed.",
+          },
+          validation: {
+            type: "string",
+            description:
+              "A short plain-text summary of how the change was validated.",
+          },
+        },
+      },
+    });
+  }
+
+  return specs;
 }
 
 async function executeLinearGraphqlToolCall(
@@ -1061,10 +1198,6 @@ async function executeLinearGraphqlToolCall(
       return errorResult(
         "linear_api_status",
         `Linear responded with HTTP ${response.status}.`,
-        {
-          status: response.status,
-          body: responseText || null,
-        },
       );
     }
 
@@ -1219,6 +1352,506 @@ async function executeLinearAddIssueCommentToolCall(
       },
     };
   }
+}
+
+async function executeCompleteTicketDeliveryToolCall(
+  input: unknown,
+  deliveryConfig: NonNullable<CodexAppServerClientOptions["issueDelivery"]>,
+  linearConfig: NonNullable<CodexAppServerClientOptions["linearGraphql"]>,
+  workspacePath: string,
+  logger: StructuredLogger,
+): Promise<
+  | {
+      success: true;
+      delivery: TicketDeliveryResult;
+      comment: LinearComment;
+    }
+  | {
+      success: false;
+      error: {
+        code: string;
+        message: string;
+      };
+    }
+> {
+  const parsed = parseCompleteTicketDeliveryArguments(input);
+  if (!parsed.ok) {
+    return {
+      success: false,
+      error: parsed.error,
+    };
+  }
+
+  if (!linearConfig.endpoint.trim() || !linearConfig.apiKey.trim()) {
+    return {
+      success: false,
+      error: {
+        code: "linear_graphql_missing_auth",
+        message:
+          "Linear GraphQL tool is not configured with endpoint and auth.",
+      },
+    };
+  }
+
+  const runCommand =
+    deliveryConfig.commandRunner ?? defaultDeliveryCommandRunner;
+  const templateReadFile = deliveryConfig.readFileFn ?? readFile;
+  let tempDir: string | null = null;
+
+  try {
+    const branch = await runCommandExpectSuccess(
+      runCommand,
+      {
+        command: "git",
+        args: ["branch", "--show-current"],
+        cwd: workspacePath,
+      },
+      "ticket_delivery_branch",
+    );
+    const currentBranch = branch.stdout.trim();
+    if (!currentBranch) {
+      return errorResult(
+        "ticket_delivery_detached_head",
+        "Current HEAD is detached.",
+      );
+    }
+    if (currentBranch === "main") {
+      return errorResult(
+        "ticket_delivery_main_branch",
+        "Refusing to publish from main.",
+      );
+    }
+
+    const status = await runCommandExpectSuccess(
+      runCommand,
+      {
+        command: "git",
+        args: ["status", "--porcelain"],
+        cwd: workspacePath,
+      },
+      "ticket_delivery_git_status",
+    );
+
+    let commitSha: string | undefined;
+    if (status.stdout.trim()) {
+      await runCommandExpectSuccess(
+        runCommand,
+        {
+          command: "git",
+          args: ["add", "-A"],
+          cwd: workspacePath,
+        },
+        "ticket_delivery_git_add",
+      );
+      const commit = await runCommandExpectSuccess(
+        runCommand,
+        {
+          command: "git",
+          args: [
+            "commit",
+            "-m",
+            `${deliveryConfig.identifier}: ${deliveryConfig.title}`,
+          ],
+          cwd: workspacePath,
+        },
+        "ticket_delivery_git_commit",
+      );
+      commitSha =
+        parseCommitSha(commit.stdout) ?? parseCommitSha(commit.stderr);
+    }
+
+    const repoResult = await runCommandExpectSuccess(
+      runCommand,
+      {
+        command: "gh",
+        args: [
+          "repo",
+          "view",
+          "--json",
+          "nameWithOwner",
+          "-q",
+          ".nameWithOwner",
+        ],
+        cwd: workspacePath,
+      },
+      "ticket_delivery_repo_view",
+    );
+    const repo = repoResult.stdout.trim();
+    if (!repo) {
+      return errorResult(
+        "ticket_delivery_missing_repo",
+        "GitHub repository could not be resolved.",
+      );
+    }
+
+    await runCommandExpectSuccess(
+      runCommand,
+      {
+        command: "git",
+        args: ["push", "-u", "origin", "HEAD"],
+        cwd: workspacePath,
+      },
+      "ticket_delivery_git_push",
+    );
+
+    const existingPrResult = await runCommandExpectSuccess(
+      runCommand,
+      {
+        command: "gh",
+        args: [
+          "pr",
+          "list",
+          "--repo",
+          repo,
+          "--head",
+          currentBranch,
+          "--state",
+          "open",
+          "--json",
+          "number,url",
+          "--jq",
+          'if length == 1 then .[0].url elif length == 0 then "" else error("multiple open pull requests for branch") end',
+        ],
+        cwd: workspacePath,
+      },
+      "ticket_delivery_pr_list",
+    );
+    const existingPrUrl = existingPrResult.stdout.trim();
+
+    const template = await templateReadFile(
+      join(workspacePath, ".github", "pull_request_template.md"),
+      "utf8",
+    );
+    tempDir = await mkdtemp(join(tmpdir(), "symphony-ticket-delivery-"));
+    const prBodyPath = join(tempDir, "pull-request.md");
+    await writeFile(
+      prBodyPath,
+      renderPullRequestBody(template, {
+        identifier: deliveryConfig.identifier,
+        title: deliveryConfig.title,
+        ticketUrl: deliveryConfig.url,
+        summary: parsed.summary,
+        validation: parsed.validation,
+      }),
+      "utf8",
+    );
+
+    const prTitle = `${deliveryConfig.identifier}: ${deliveryConfig.title}`;
+    if (!existingPrUrl) {
+      await runCommandExpectSuccess(
+        runCommand,
+        {
+          command: "gh",
+          args: [
+            "pr",
+            "create",
+            "--repo",
+            repo,
+            "--base",
+            "main",
+            "--head",
+            currentBranch,
+            "--title",
+            prTitle,
+            "--body-file",
+            prBodyPath,
+          ],
+          cwd: workspacePath,
+        },
+        "ticket_delivery_pr_create",
+      );
+    } else {
+      await runCommandExpectSuccess(
+        runCommand,
+        {
+          command: "gh",
+          args: [
+            "pr",
+            "edit",
+            existingPrUrl,
+            "--title",
+            prTitle,
+            "--body-file",
+            prBodyPath,
+          ],
+          cwd: workspacePath,
+        },
+        "ticket_delivery_pr_edit",
+      );
+    }
+
+    const prViewResult = await runCommandExpectSuccess(
+      runCommand,
+      {
+        command: "gh",
+        args: ["pr", "view", "--repo", repo, "--json", "url", "-q", ".url"],
+        cwd: workspacePath,
+      },
+      "ticket_delivery_pr_view",
+    );
+    const prUrl = prViewResult.stdout.trim();
+    if (!prUrl) {
+      return errorResult(
+        "ticket_delivery_missing_pr_url",
+        "GitHub pull request URL could not be resolved.",
+      );
+    }
+
+    const client = new LinearTrackerClient({
+      endpoint: linearConfig.endpoint,
+      apiKey: linearConfig.apiKey,
+      logger,
+      projectSlug: linearConfig.projectSlug ?? "",
+      ...(linearConfig.fetchFn ? { fetchFn: linearConfig.fetchFn } : {}),
+    });
+    const comment = await client.createIssueComment(
+      deliveryConfig.issueId,
+      buildCompletionComment(parsed.summary, parsed.validation, prUrl),
+    );
+
+    return {
+      success: true,
+      delivery: {
+        branch: currentBranch,
+        prUrl,
+        commentId: comment.id,
+        commitSha,
+      },
+      comment,
+    };
+  } catch (error) {
+    if (error instanceof TrackerError) {
+      return errorResult(error.code, error.message);
+    }
+    if (
+      error &&
+      typeof error === "object" &&
+      "code" in error &&
+      "message" in error &&
+      typeof (error as { code: unknown }).code === "string" &&
+      typeof (error as { message: unknown }).message === "string"
+    ) {
+      return errorResult(
+        (error as { code: string }).code,
+        (error as { message: string }).message,
+      );
+    }
+
+    return errorResult(
+      "ticket_delivery_failed",
+      error instanceof Error ? error.message : String(error),
+    );
+  } finally {
+    if (tempDir) {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  }
+}
+
+type CompleteTicketDeliveryArguments =
+  | { ok: true; summary: string; validation: string }
+  | {
+      ok: false;
+      error: {
+        code: string;
+        message: string;
+      };
+    };
+
+function parseCompleteTicketDeliveryArguments(
+  input: unknown,
+): CompleteTicketDeliveryArguments {
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    return {
+      ok: false,
+      error: {
+        code: "ticket_delivery_invalid_input",
+        message: "tool input must be an object with summary and validation.",
+      },
+    };
+  }
+
+  const extraKeys = Object.keys(input).filter(
+    (key) => key !== "summary" && key !== "validation",
+  );
+  if (extraKeys.length > 0) {
+    return {
+      ok: false,
+      error: {
+        code: "ticket_delivery_invalid_input",
+        message: `unexpected fields: ${extraKeys.join(", ")}`,
+      },
+    };
+  }
+
+  const summary =
+    typeof (input as { summary?: unknown }).summary === "string"
+      ? (input as { summary: string }).summary.trim()
+      : "";
+  const validation =
+    typeof (input as { validation?: unknown }).validation === "string"
+      ? (input as { validation: string }).validation.trim()
+      : "";
+
+  if (!summary) {
+    return {
+      ok: false,
+      error: {
+        code: "ticket_delivery_invalid_input",
+        message: "summary must be a non-empty string.",
+      },
+    };
+  }
+
+  if (!validation) {
+    return {
+      ok: false,
+      error: {
+        code: "ticket_delivery_invalid_input",
+        message: "validation must be a non-empty string.",
+      },
+    };
+  }
+
+  return {
+    ok: true,
+    summary,
+    validation,
+  };
+}
+
+async function runCommandExpectSuccess(
+  runCommand: DeliveryCommandRunner,
+  input: DeliveryCommandInput,
+  code: string,
+): Promise<DeliveryCommandResult> {
+  const result = await runCommand(input);
+  if (result.exitCode !== 0) {
+    throw {
+      code,
+      message: formatCommandFailure(input, result),
+    };
+  }
+  return result;
+}
+
+function formatCommandFailure(
+  input: DeliveryCommandInput,
+  result: DeliveryCommandResult,
+): string {
+  const parts = [
+    `${input.command} ${input.args.join(" ")}`.trim(),
+    `failed with exit code ${result.exitCode}.`,
+  ];
+  const stderr = result.stderr.trim();
+  const stdout = result.stdout.trim();
+  if (stderr) {
+    parts.push(stderr);
+  } else if (stdout) {
+    parts.push(stdout);
+  }
+  return parts.join(" ");
+}
+
+async function defaultDeliveryCommandRunner(
+  input: DeliveryCommandInput,
+): Promise<DeliveryCommandResult> {
+  return await new Promise<DeliveryCommandResult>(
+    (resolvePromise, rejectPromise) => {
+      const child = spawn(input.command, input.args, {
+        cwd: input.cwd,
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+
+      let stdout = "";
+      let stderr = "";
+
+      child.stdout.on("data", (chunk) => {
+        stdout += chunk.toString();
+      });
+      child.stderr.on("data", (chunk) => {
+        stderr += chunk.toString();
+      });
+      child.on("error", (error) => {
+        rejectPromise(error);
+      });
+      child.on("close", (exitCode) => {
+        resolvePromise({
+          stdout,
+          stderr,
+          exitCode: exitCode ?? 1,
+        });
+      });
+    },
+  );
+}
+
+function parseCommitSha(output: string): string | undefined {
+  const match = /\[.+?\s([0-9a-f]{7,40})\]/i.exec(output);
+  return match?.[1];
+}
+
+function normalizeBulletList(text: string): string[] {
+  const lines = text
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => line.replace(/^[-*]\s*/, ""));
+  return lines.length > 0 ? lines : [text.trim()];
+}
+
+function renderPullRequestBody(
+  _template: string,
+  input: {
+    identifier: string;
+    title: string;
+    ticketUrl: string | null;
+    summary: string;
+    validation: string;
+  },
+): string {
+  const summaryBullets = normalizeBulletList(input.summary)
+    .map((line) => `- ${line}`)
+    .join("\n");
+  const validationBullets = normalizeBulletList(input.validation)
+    .map((line) => `- [x] ${line}`)
+    .join("\n");
+  const context = input.ticketUrl
+    ? `Implements ${input.identifier}: ${input.title}. Ticket: ${input.ticketUrl}`
+    : `Implements ${input.identifier}: ${input.title}.`;
+
+  return [
+    `Linear Issue: ${input.identifier}`,
+    "",
+    "#### Context",
+    "",
+    context,
+    "",
+    "#### TL;DR",
+    "",
+    input.summary,
+    "",
+    "#### Summary",
+    "",
+    summaryBullets,
+    "",
+    "#### Alternatives",
+    "",
+    "- None documented.",
+    "",
+    "#### Test Plan",
+    "",
+    "- [x] `./scripts/verify`",
+    validationBullets,
+  ].join("\n");
+}
+
+function buildCompletionComment(
+  summary: string,
+  validation: string,
+  prUrl: string,
+): string {
+  return `${summary} Validation: ${validation} PR: ${prUrl}`;
 }
 
 function parseLinearGraphqlArguments(input: unknown):
@@ -1393,17 +2026,12 @@ function parseLinearAddIssueCommentArguments(input: unknown):
   };
 }
 
-function errorResult(
-  code: string,
-  message: string,
-  extra: Record<string, unknown> = {},
-): Record<string, unknown> {
+function errorResult(code: string, message: string): ToolErrorResult {
   return {
     success: false,
     error: {
       code,
       message,
-      ...extra,
     },
   };
 }

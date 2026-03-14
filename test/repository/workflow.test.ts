@@ -30,7 +30,7 @@ describe("repository WORKFLOW.md", () => {
     expect(definition.promptTemplate).toContain(
       "{% for comment in issue.comments %}",
     );
-    expect(definition.promptTemplate).toContain("linear_add_issue_comment");
+    expect(definition.promptTemplate).toContain("complete_ticket_delivery");
     expect(definition.promptTemplate).toContain(
       "Do not commit directly to `main`",
     );
@@ -48,7 +48,7 @@ describe("repository WORKFLOW.md", () => {
       "Do not create GitHub issues for ticket delivery",
     );
     expect(definition.promptTemplate).toContain(
-      "Include the GitHub pull request URL in that `linear_add_issue_comment` body",
+      "call `complete_ticket_delivery` exactly once",
     );
     expect(definition.promptTemplate).not.toContain(
       'gh pr list --head "$branch" --state open --json number,url',
@@ -64,17 +64,20 @@ describe("repository WORKFLOW.md", () => {
       "issues(filter: { identifier: { eq: $identifier } })",
     );
     expect(definition.promptTemplate).toContain(
-      "Use that provided id for `linear_add_issue_comment`",
+      "Reuse that provided id for tracker operations",
     );
     expect(definition.promptTemplate).toContain(
-      "Do not use `linear_graphql` just to look up the current ticket id",
+      "Do not use `linear_graphql` just to look up the current ticket id when the provided `Ticket ID` is already sufficient",
     );
     expect(definition.promptTemplate).toContain("Do not use `issueV2(...)`");
     expect(definition.promptTemplate).toContain(
       "Do not use `issue(identifier: ...)`",
     );
     expect(definition.promptTemplate).toContain(
-      "Do not use `linear_graphql` to post the completion comment",
+      "Do not call `linear_add_issue_comment` directly for normal ticket completion",
+    );
+    expect(definition.promptTemplate).toContain(
+      "posts the final Linear completion comment with the PR URL",
     );
   });
 });

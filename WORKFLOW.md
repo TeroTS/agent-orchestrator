@@ -99,8 +99,8 @@ Execution rules:
 11. If Linear access is available, use `linear_graphql` only when the task needs tracker context or other Linear operations that are not covered by a dedicated tool.
 12. Linear lookup rules:
 
-- The current Linear ticket id is already provided in this prompt as `Ticket ID`. Use that provided id for `linear_add_issue_comment`.
-- Do not use `linear_graphql` just to look up the current ticket id for the completion comment.
+- The current Linear ticket id is already provided in this prompt as `Ticket ID`. Reuse that provided id for tracker operations that need the current ticket UUID.
+- Do not use `linear_graphql` just to look up the current ticket id when the provided `Ticket ID` is already sufficient.
 - To fetch a Linear ticket by ticket identifier such as `OWN-15`, query the `issues` connection with an identifier filter, for example:
   `query IssueByIdentifier($identifier: String!) { issues(filter: { identifier: { eq: $identifier } }) { nodes { id identifier title } } }`
 - Use the returned ticket `id` for follow-up operations.
@@ -108,8 +108,9 @@ Execution rules:
 - Do not use `issue(identifier: ...)`.
 - `issue(id: ...)` is only for a known Linear issue id / UUID, not for identifier-based lookup.
 
-13. When the implementation work is complete and validation passes, call `linear_add_issue_comment` exactly once with the provided `Ticket ID` and a 2-4 sentence plain-text summary of what changed and how you validated it.
-14. Include the GitHub pull request URL in that `linear_add_issue_comment` body.
-15. Do not use `linear_graphql` to post the completion comment unless `linear_add_issue_comment` is unavailable or clearly failing.
-16. Post the Linear completion comment before your final output.
-17. Final output must summarize completed work, validation run, and any remaining blocker.
+13. When the implementation work is complete and validation passes, call `complete_ticket_delivery` exactly once with a concise summary of what changed and the validation you ran.
+14. Do not call `linear_add_issue_comment` directly for normal ticket completion.
+15. `complete_ticket_delivery` is the required completion path because it commits the workspace changes when needed, pushes the ticket branch, creates or updates the GitHub pull request, and posts the final Linear completion comment with the PR URL.
+16. If `complete_ticket_delivery` fails, stop and report the exact error instead of improvising with manual GitHub or Linear commands.
+17. Call `complete_ticket_delivery` before your final output.
+18. Final output must summarize completed work, validation run, and any remaining blocker.

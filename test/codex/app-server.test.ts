@@ -188,6 +188,25 @@ rl.on("line", (line) => {
       return;
     }
 
+    if (scenario === "complete-ticket-delivery") {
+      send({
+        id: "tool-delivery-1",
+        method: "item/tool/call",
+        params: {
+          tool: "complete_ticket_delivery",
+          callId: "call-delivery-1",
+          threadId: "thread-1",
+          turnId: "turn-1",
+          arguments: {
+            summary: "Added the requested files.",
+            validation: "Verified the files exist."
+          }
+        }
+      });
+      setTimeout(() => send({ method: "turn/completed", params: {} }), 5);
+      return;
+    }
+
     if (scenario === "linear-graphql-invalid-input") {
       send({
         id: "tool-graphql-1",
@@ -708,6 +727,120 @@ describe("CodexAppServerClient", () => {
         }),
       ]),
     );
+  });
+
+  it("advertises and executes the complete_ticket_delivery tool and returns delivery metadata", async () => {
+    const { dir, scriptPath } = await createScenarioDir(
+      "codex-complete-ticket-delivery",
+      "complete-ticket-delivery",
+    );
+    const commandRunner = vi
+      .fn()
+      .mockResolvedValueOnce({
+        stdout: "feature/abc-1\n",
+        stderr: "",
+        exitCode: 0,
+      })
+      .mockResolvedValueOnce({
+        stdout: " M foo.ts\n",
+        stderr: "",
+        exitCode: 0,
+      })
+      .mockResolvedValueOnce({
+        stdout: "",
+        stderr: "",
+        exitCode: 0,
+      })
+      .mockResolvedValueOnce({
+        stdout: "[feature/abc-1 abc1234] ABC-1: Example\n",
+        stderr: "",
+        exitCode: 0,
+      })
+      .mockResolvedValueOnce({
+        stdout: "example/repo\n",
+        stderr: "",
+        exitCode: 0,
+      })
+      .mockResolvedValueOnce({
+        stdout: "",
+        stderr: "",
+        exitCode: 0,
+      })
+      .mockResolvedValueOnce({
+        stdout: "",
+        stderr: "",
+        exitCode: 0,
+      })
+      .mockResolvedValueOnce({
+        stdout: "",
+        stderr: "",
+        exitCode: 0,
+      })
+      .mockResolvedValueOnce({
+        stdout: "https://github.com/example/repo/pull/123\n",
+        stderr: "",
+        exitCode: 0,
+      });
+    const client = new CodexAppServerClient({
+      command: `${process.execPath} ${scriptPath}`,
+      workspacePath: dir,
+      approvalPolicy: "never",
+      threadSandbox: "workspace-write",
+      turnSandboxPolicy: { type: "workspaceWrite" },
+      readTimeoutMs: 500,
+      turnTimeoutMs: 1000,
+      linearGraphql: {
+        endpoint: "https://linear.example/graphql",
+        apiKey: "token",
+        projectSlug: "demo",
+        fetchFn: vi.fn().mockResolvedValue(
+          new Response(
+            JSON.stringify({
+              data: {
+                commentCreate: {
+                  success: true,
+                  comment: {
+                    id: "comment-1",
+                    body: "Summary. Validation. PR: https://github.com/example/repo/pull/123",
+                    url: "https://linear.app/demo/comment/comment-1",
+                  },
+                },
+              },
+            }),
+            {
+              status: 200,
+              headers: {
+                "content-type": "application/json",
+              },
+            },
+          ),
+        ),
+      },
+      issueDelivery: {
+        issueId: "issue-1",
+        identifier: "ABC-1",
+        title: "Example",
+        url: "https://linear.app/demo/issue/ABC-1",
+        branchName: "feature/abc-1",
+        commandRunner,
+        readFileFn: vi.fn().mockResolvedValue(`Linear Issue: <!-- OWN-123 -->`),
+      },
+    });
+
+    await client.start();
+    const result = await client.runTurn({
+      prompt: "Hello",
+      title: "ABC-1: Example",
+    });
+    await client.stop();
+
+    expect(result.deliveryResult).toEqual({
+      branch: "feature/abc-1",
+      prUrl: "https://github.com/example/repo/pull/123",
+      commentId: "comment-1",
+      commitSha: "abc1234",
+    });
+    expect(commandRunner).toHaveBeenCalled();
   });
 
   it("opts into experimental dynamic tools and advertises input schemas on thread/start", async () => {

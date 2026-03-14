@@ -1,4 +1,8 @@
-import { CodexAppServerClient, type CodexRuntimeEvent } from "./app-server.js";
+import {
+  CodexAppServerClient,
+  type CodexRuntimeEvent,
+  type DeliveryCommandRunner,
+} from "./app-server.js";
 import type { OrchestrationIssue } from "../orchestrator/rules.js";
 import {
   createStructuredLogger,
@@ -20,6 +24,8 @@ export interface AgentRunnerOptions {
   issueStateRefresher: (issueIds: string[]) => Promise<OrchestrationIssue[]>;
   issueContextFetcher?: (issueId: string) => Promise<OrchestrationIssue>;
   linearFetchFn?: typeof fetch;
+  deliveryCommandRunner?: DeliveryCommandRunner;
+  templateReadFile?: typeof import("node:fs/promises").readFile;
   logger?: StructuredLogger;
 }
 
@@ -32,6 +38,12 @@ export class AgentRunner {
     | ((issueId: string) => Promise<OrchestrationIssue>)
     | undefined;
   private readonly linearFetchFn: typeof fetch | undefined;
+  private readonly deliveryCommandRunner:
+    | AgentRunnerOptions["deliveryCommandRunner"]
+    | undefined;
+  private readonly templateReadFile:
+    | AgentRunnerOptions["templateReadFile"]
+    | undefined;
   private readonly logger: StructuredLogger;
 
   constructor(options: AgentRunnerOptions) {
@@ -39,6 +51,8 @@ export class AgentRunner {
     this.issueStateRefresher = options.issueStateRefresher;
     this.issueContextFetcher = options.issueContextFetcher;
     this.linearFetchFn = options.linearFetchFn;
+    this.deliveryCommandRunner = options.deliveryCommandRunner;
+    this.templateReadFile = options.templateReadFile;
     this.logger = options.logger ?? createStructuredLogger();
   }
 
@@ -81,6 +95,7 @@ export class AgentRunner {
       workspace_path: workspace.path,
     });
 
+    let issue = input.issue;
     const client = new CodexAppServerClient({
       command: config.codex.command,
       workspacePath: workspace.path,
@@ -97,11 +112,21 @@ export class AgentRunner {
         projectSlug: config.tracker.projectSlug,
         ...(this.linearFetchFn ? { fetchFn: this.linearFetchFn } : {}),
       },
+      issueDelivery: {
+        issueId: issue.id,
+        identifier: issue.identifier,
+        title: issue.title,
+        url: issue.url,
+        branchName: issue.branchName,
+        ...(this.deliveryCommandRunner
+          ? { commandRunner: this.deliveryCommandRunner }
+          : {}),
+        ...(this.templateReadFile ? { readFileFn: this.templateReadFile } : {}),
+      },
       logger: this.logger,
       ...(input.onEvent ? { onEvent: input.onEvent } : {}),
     });
 
-    let issue = input.issue;
     const abortHandler = () => {
       void client.stop();
     };
@@ -149,13 +174,18 @@ export class AgentRunner {
         turn_number: 1,
       });
 
-      if (!turnResult.completionComment) {
-        throw new Error("Codex did not post a completion comment.");
-      }
-
-      if (!containsGitHubPullRequestUrl(turnResult.completionComment.body)) {
+      if (!turnResult.deliveryResult?.commentId) {
+        if (!turnResult.completionComment) {
+          throw new Error("Codex did not post a completion comment.");
+        }
+        if (!containsGitHubPullRequestUrl(turnResult.completionComment.body)) {
+          throw new Error(
+            "Codex did not include a GitHub PR URL in the completion comment.",
+          );
+        }
+      } else if (!turnResult.deliveryResult?.prUrl) {
         throw new Error(
-          "Codex did not include a GitHub PR URL in the completion comment.",
+          "Codex did not include a GitHub PR URL in the delivery result.",
         );
       }
 
