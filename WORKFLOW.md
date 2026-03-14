@@ -2,7 +2,7 @@
 tracker:
   kind: linear
   api_key: $LINEAR_API_KEY
-  project_slug: $SYMPHONY_LINEAR_PROJECT_SLUG
+  project_slug: testing-symphony-da507e24c326
   dispatch_state: In Progress
   handoff_state: In Review
   active_states:
