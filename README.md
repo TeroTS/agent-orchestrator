@@ -13,6 +13,7 @@ single in-memory orchestrator.
 - Codex app-server subprocess client over JSON lines
 - Polling orchestrator with retries, reconciliation, and stall detection
 - Structured logging
+- High-signal `agent activity` logs for live Codex progress
 - Optional local status server with JSON and HTML surfaces
 - Unit and integration-style test coverage with Vitest
 
@@ -127,6 +128,14 @@ It binds to `127.0.0.1` and currently exposes:
 - `POST /api/v1/reconcile`
 
 Unsupported methods on known routes return `405 Method Not Allowed`.
+
+## Logs
+
+During active runs, Symphony emits structured `agent activity` log entries for
+high-signal Codex milestones such as turn start/completion, command execution,
+tool calls, retries, and final agent messages. Low-value streaming deltas and
+token-count chatter are intentionally suppressed from this operator-facing log
+stream.
 
 ## Testing
 

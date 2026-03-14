@@ -173,6 +173,11 @@ export class SymphonyOrchestrator {
     this.claimed.add(issue.id);
     this.retryAttempts.delete(issue.id);
     this.clearRetryTimer(issue.id);
+    this.logAgentActivity(issue, {
+      kind: "dispatch",
+      message: "Worker dispatched.",
+      state: issue.state,
+    });
 
     const runningEntry: RunningEntry & {
       cancel: () => void;
@@ -313,6 +318,13 @@ export class SymphonyOrchestrator {
       });
       this.running.delete(refreshedIssue.id);
       if (action === "stop_and_cleanup") {
+        this.logAgentActivity(refreshedIssue, {
+          kind: "reconciled",
+          message: "Run reconciled against a terminal issue state.",
+          state: refreshedIssue.state,
+          sessionId: running.sessionId,
+          turnId: running.turnId,
+        });
         await this.removeWorkspaceFn(
           workspacePathFor(config.workspace.root, refreshedIssue.identifier),
         );
@@ -371,7 +383,16 @@ export class SymphonyOrchestrator {
 
     const targetState = this.currentConfig().tracker.dispatchState;
     try {
-      return await this.tracker.transitionIssueToState(issue.id, targetState);
+      const transitioned = await this.tracker.transitionIssueToState(
+        issue.id,
+        targetState,
+      );
+      this.logAgentActivity(transitioned, {
+        kind: "state_transition",
+        message: `Issue moved to ${targetState}.`,
+        state: transitioned.state,
+      });
+      return transitioned;
     } catch (error) {
       this.logger.warn("dispatch state transition failed", {
         issue_id: issue.id,
@@ -401,6 +422,11 @@ export class SymphonyOrchestrator {
       ]);
       if (refreshedIssues[0]) {
         refreshedIssue = refreshedIssues[0];
+        this.logAgentActivity(refreshedIssue, {
+          kind: "state_refresh",
+          message: `Issue state refreshed: ${refreshedIssue.state}.`,
+          state: refreshedIssue.state,
+        });
       }
     } catch (error) {
       this.logger.warn("completion state refresh failed", {
@@ -427,6 +453,11 @@ export class SymphonyOrchestrator {
         refreshedIssue.id,
         targetState,
       );
+      this.logAgentActivity(transitioned, {
+        kind: "state_transition",
+        message: `Issue moved to ${targetState}.`,
+        state: transitioned.state,
+      });
       this.claimed.delete(issue.id);
       return computeReconciliationAction({
         nextState: transitioned.state,
@@ -469,6 +500,13 @@ export class SymphonyOrchestrator {
     });
 
     this.retryAttempts.set(issue.id, retryEntry);
+    this.logAgentActivity(issue, {
+      kind: "retry_scheduled",
+      message: normalExit
+        ? `Queued follow-up attempt ${attempt}.`
+        : `Queued retry attempt ${attempt}.`,
+      state: issue.state,
+    });
     this.claimed.add(issue.id);
     this.clearRetryTimer(issue.id);
     const timer = setTimeout(() => {
@@ -613,6 +651,12 @@ export class SymphonyOrchestrator {
         issue_identifier: running.issue.identifier,
         outcome: "retrying",
       });
+      this.logAgentActivity(running.issue, {
+        kind: "stalled",
+        message: "Run stalled and will be retried.",
+        sessionId: running.sessionId,
+        turnId: running.turnId,
+      });
       this.scheduleRetry(
         running.issue,
         (running.retryAttempt ?? 0) + 1,
@@ -656,15 +700,40 @@ export class SymphonyOrchestrator {
       running.turnCount = (running.turnCount ?? 0) + 1;
     }
 
-    if (shouldLogRuntimeEvent(event.event)) {
-      this.logger.info("runtime event", {
-        issue_id: running.issue.id,
-        issue_identifier: running.issue.identifier,
-        session_id: event.sessionId ?? running.sessionId,
-        event: event.event,
-        message,
-      });
+    const activity = runtimeEventToActivity(event, {
+      sessionId: running.sessionId,
+      turnId: running.turnId,
+    });
+    if (activity) {
+      this.logAgentActivity(running.issue, activity);
     }
+  }
+
+  private logAgentActivity(
+    issue: OrchestrationIssue,
+    activity: {
+      kind: string;
+      message: string;
+      tool?: string | undefined;
+      command?: string | undefined;
+      exitCode?: number | undefined;
+      state?: string | undefined;
+      sessionId?: string | undefined;
+      turnId?: string | undefined;
+    },
+  ): void {
+    this.logger.info("agent activity", {
+      issue_id: issue.id,
+      issue_identifier: issue.identifier,
+      session_id: activity.sessionId ?? null,
+      turn_id: activity.turnId ?? null,
+      kind: activity.kind,
+      message: activity.message,
+      tool: activity.tool,
+      command: activity.command,
+      exit_code: activity.exitCode,
+      state: activity.state,
+    });
   }
 }
 
@@ -686,14 +755,162 @@ function summarizeRuntimeMessage(event: CodexRuntimeEvent): string | undefined {
   return undefined;
 }
 
-function shouldLogRuntimeEvent(eventName: string): boolean {
-  return [
-    "notification",
-    "approval_auto_approved",
-    "unsupported_tool_call",
-    "turn_input_required",
-    "linear_graphql_executed",
-    "linear_graphql_failed",
-    "malformed",
-  ].includes(eventName);
+function runtimeEventToActivity(
+  event: CodexRuntimeEvent,
+  current: { sessionId?: string | undefined; turnId?: string | undefined },
+): {
+  kind: string;
+  message: string;
+  tool?: string | undefined;
+  command?: string | undefined;
+  exitCode?: number | undefined;
+  sessionId?: string | undefined;
+  turnId?: string | undefined;
+} | null {
+  const sessionId = event.sessionId ?? current.sessionId;
+  const payload = isRecord(event.payload) ? event.payload : null;
+
+  switch (event.event) {
+    case "session_started":
+      return {
+        kind: "turn_started",
+        message: "Codex turn started.",
+        sessionId,
+        turnId: current.turnId,
+      };
+    case "turn_completed":
+      return {
+        kind: "turn_completed",
+        message: "Codex turn completed.",
+        sessionId,
+        turnId: current.turnId,
+      };
+    case "turn_failed":
+      return {
+        kind: "turn_failed",
+        message: "Codex turn failed.",
+        sessionId,
+        turnId: current.turnId,
+      };
+    case "turn_cancelled":
+      return {
+        kind: "turn_cancelled",
+        message: "Codex turn cancelled.",
+        sessionId,
+        turnId: current.turnId,
+      };
+    case "task_started":
+      return {
+        kind: "task_started",
+        message: "Codex task started.",
+        sessionId,
+        turnId: current.turnId,
+      };
+    case "task_complete":
+      return {
+        kind: "task_complete",
+        message: "Codex task completed.",
+        sessionId,
+        turnId: current.turnId,
+      };
+    case "approval_auto_approved":
+      return {
+        kind: "approval_auto_approved",
+        message: "Approval auto-approved.",
+        sessionId,
+        turnId: current.turnId,
+      };
+    case "unsupported_tool_call":
+      return {
+        kind: "unsupported_tool_call",
+        message:
+          typeof payload?.tool === "string"
+            ? `Unsupported tool call: ${payload.tool}.`
+            : "Unsupported tool call.",
+        tool: typeof payload?.tool === "string" ? payload.tool : undefined,
+        sessionId,
+        turnId: current.turnId,
+      };
+    case "turn_input_required":
+      return {
+        kind: "turn_input_required",
+        message: "Codex requested user input.",
+        sessionId,
+        turnId: current.turnId,
+      };
+    case "linear_graphql_executed":
+      return {
+        kind: "linear_graphql_executed",
+        message: "Linear GraphQL tool executed.",
+        tool: "linear_graphql",
+        sessionId,
+        turnId: current.turnId,
+      };
+    case "linear_graphql_failed":
+      return {
+        kind: "linear_graphql_failed",
+        message: "Linear GraphQL tool failed.",
+        tool: "linear_graphql",
+        sessionId,
+        turnId: current.turnId,
+      };
+    case "linear_issue_comment_created":
+      return {
+        kind: "linear_issue_comment_created",
+        message: "Linear issue comment created.",
+        tool: "linear_add_issue_comment",
+        sessionId,
+        turnId: current.turnId,
+      };
+    case "linear_issue_comment_failed":
+      return {
+        kind: "linear_issue_comment_failed",
+        message: "Linear issue comment failed.",
+        tool: "linear_add_issue_comment",
+        sessionId,
+        turnId: current.turnId,
+      };
+    case "exec_command_begin":
+      return {
+        kind: "exec_command_begin",
+        message: event.message ?? "Running command.",
+        command:
+          typeof payload?.command === "string" ? payload.command : undefined,
+        sessionId,
+        turnId: current.turnId,
+      };
+    case "exec_command_end":
+      return {
+        kind: "exec_command_end",
+        message: event.message ?? "Command finished.",
+        command:
+          typeof payload?.command === "string" ? payload.command : undefined,
+        exitCode:
+          typeof payload?.exit_code === "number"
+            ? payload.exit_code
+            : undefined,
+        sessionId,
+        turnId: current.turnId,
+      };
+    case "agent_message":
+      return {
+        kind: "agent_message",
+        message: event.message ?? "Agent update received.",
+        sessionId,
+        turnId: current.turnId,
+      };
+    case "malformed":
+      return {
+        kind: "malformed",
+        message: event.message ?? "Malformed app-server output received.",
+        sessionId,
+        turnId: current.turnId,
+      };
+    default:
+      return null;
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
 }

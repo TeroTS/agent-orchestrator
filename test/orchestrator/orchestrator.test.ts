@@ -341,11 +341,12 @@ describe("SymphonyOrchestrator", () => {
               },
             });
             onEvent?.({
-              event: "notification",
+              event: "exec_command_begin",
               timestamp: "2026-03-12T00:00:01.000Z",
-              message: "Working on tests",
+              message: "Running command: npm test",
+              sessionId: "thread-1-turn-1",
               payload: {
-                message: "Working on tests",
+                command: "npm test",
               },
             });
           });
@@ -383,8 +384,8 @@ describe("SymphonyOrchestrator", () => {
         turnId: "turn-1",
         codexAppServerPid: 1234,
         turnCount: 1,
-        lastCodexEvent: "notification",
-        lastCodexMessage: "Working on tests",
+        lastCodexEvent: "exec_command_begin",
+        lastCodexMessage: "Running command: npm test",
         lastCodexTimestamp: "2026-03-12T00:00:01.000Z",
       }),
     ]);
@@ -412,10 +413,13 @@ describe("SymphonyOrchestrator", () => {
                   },
                 });
                 onEvent?.({
-                  event: "notification",
+                  event: "exec_command_begin",
                   timestamp: "2026-03-12T00:00:01.000Z",
-                  message: "Still working",
+                  message: "Running command: npm test",
                   sessionId: "thread-1-turn-1",
+                  payload: {
+                    command: "npm test",
+                  },
                 });
               });
 
@@ -439,16 +443,24 @@ describe("SymphonyOrchestrator", () => {
     );
     await Promise.resolve();
 
-    expect(logger.info).toHaveBeenCalledWith(
-      "runtime event",
-      expect.objectContaining({
-        issue_id: "issue-1",
-        issue_identifier: "ABC-1",
-        session_id: "thread-1-turn-1",
-        event: "notification",
-        message: "Still working",
-      }),
-    );
+    expect(
+      logger.info.mock.calls.some(
+        ([message, payload]) =>
+          message === "agent activity" &&
+          payload &&
+          typeof payload === "object" &&
+          payload.issue_id === "issue-1" &&
+          payload.issue_identifier === "ABC-1" &&
+          payload.session_id === "thread-1-turn-1" &&
+          payload.kind === "exec_command_begin" &&
+          payload.message === "Running command: npm test" &&
+          payload.command === "npm test",
+      ),
+    ).toBe(true);
+
+    expect(
+      logger.info.mock.calls.some(([message]) => message === "runtime event"),
+    ).toBe(false);
 
     rejectRun?.(new Error("Turn timed out after 60000ms."));
     await Promise.resolve();
@@ -460,8 +472,8 @@ describe("SymphonyOrchestrator", () => {
         issue_id: "issue-1",
         issue_identifier: "ABC-1",
         session_id: "thread-1-turn-1",
-        last_event: "notification",
-        last_message: "Still working",
+        last_event: "exec_command_begin",
+        last_message: "Running command: npm test",
       }),
     );
   });

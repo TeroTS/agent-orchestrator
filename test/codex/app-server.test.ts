@@ -123,6 +123,25 @@ rl.on("line", (line) => {
       return;
     }
 
+    if (scenario === "high-signal-events") {
+      send({ method: "codex/event/task_started", params: {} });
+      send({
+        method: "codex/event/exec_command_begin",
+        params: { command: "npm test" },
+      });
+      send({
+        method: "codex/event/exec_command_end",
+        params: { command: "npm test", exit_code: 0 },
+      });
+      send({
+        method: "codex/event/agent_message",
+        params: { message: "Implemented the requested file." },
+      });
+      send({ method: "codex/event/task_complete", params: {} });
+      setTimeout(() => send({ method: "turn/completed", params: {} }), 5);
+      return;
+    }
+
     if (scenario === "user-input") {
       send({ method: "item/tool/requestUserInput", params: { prompt: "Need help" } });
       return;
@@ -381,6 +400,61 @@ describe("CodexAppServerClient", () => {
         expect.objectContaining({
           event: "other_message",
           message: "item/progress",
+        }),
+      ]),
+    );
+  });
+
+  it("normalizes high-signal Codex protocol events for operator visibility", async () => {
+    const { dir, scriptPath } = await createScenarioDir(
+      "codex-high-signal",
+      "high-signal-events",
+    );
+    const events: CodexRuntimeEvent[] = [];
+    const client = new CodexAppServerClient({
+      command: `${process.execPath} ${scriptPath}`,
+      workspacePath: dir,
+      approvalPolicy: "never",
+      threadSandbox: "workspace-write",
+      turnSandboxPolicy: { type: "workspaceWrite" },
+      readTimeoutMs: 500,
+      turnTimeoutMs: 1000,
+      onEvent: (event) => events.push(event),
+    });
+
+    await client.start();
+    await client.runTurn({
+      prompt: "Hello",
+      title: "ABC-3B: Example",
+    });
+    await client.stop();
+
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          event: "task_started",
+        }),
+        expect.objectContaining({
+          event: "exec_command_begin",
+          message: "Running command: npm test",
+          payload: expect.objectContaining({
+            command: "npm test",
+          }),
+        }),
+        expect.objectContaining({
+          event: "exec_command_end",
+          message: "Command finished with exit code 0: npm test",
+          payload: expect.objectContaining({
+            command: "npm test",
+            exit_code: 0,
+          }),
+        }),
+        expect.objectContaining({
+          event: "agent_message",
+          message: "Implemented the requested file.",
+        }),
+        expect.objectContaining({
+          event: "task_complete",
         }),
       ]),
     );

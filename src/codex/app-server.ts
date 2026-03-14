@@ -478,6 +478,16 @@ export class CodexAppServerClient {
       return;
     }
 
+    const highSignalEvent = mapHighSignalProtocolEvent(
+      method,
+      message.params ?? message,
+      this.currentTurn?.sessionId,
+    );
+    if (highSignalEvent) {
+      this.emit(highSignalEvent);
+      return;
+    }
+
     this.emit({
       event: method === "notification" ? "notification" : "other_message",
       message: summarizeProtocolMessage(method, message.params ?? message),
@@ -730,6 +740,110 @@ function summarizeProtocolMessage(
   }
 
   return method;
+}
+
+function mapHighSignalProtocolEvent(
+  method: string,
+  payload: unknown,
+  sessionId: string | undefined,
+): Omit<CodexRuntimeEvent, "timestamp" | "codexAppServerPid"> | null {
+  switch (method) {
+    case "codex/event/task_started":
+      return {
+        event: "task_started",
+        message: "Codex task started.",
+        payload,
+        sessionId,
+      };
+    case "codex/event/task_complete":
+      return {
+        event: "task_complete",
+        message: "Codex task completed.",
+        payload,
+        sessionId,
+      };
+    case "codex/event/exec_command_begin":
+      return {
+        event: "exec_command_begin",
+        message: summarizeExecCommandBegin(payload),
+        payload,
+        sessionId,
+      };
+    case "codex/event/exec_command_end":
+      return {
+        event: "exec_command_end",
+        message: summarizeExecCommandEnd(payload),
+        payload,
+        sessionId,
+      };
+    case "codex/event/agent_message":
+      return {
+        event: "agent_message",
+        message: summarizeAgentMessage(payload),
+        payload,
+        sessionId,
+      };
+    default:
+      return null;
+  }
+}
+
+function summarizeExecCommandBegin(payload: unknown): string {
+  if (
+    payload &&
+    typeof payload === "object" &&
+    "command" in payload &&
+    typeof payload.command === "string" &&
+    payload.command.trim()
+  ) {
+    return `Running command: ${payload.command.trim()}`;
+  }
+
+  return "Running command.";
+}
+
+function summarizeExecCommandEnd(payload: unknown): string {
+  const command =
+    payload &&
+    typeof payload === "object" &&
+    "command" in payload &&
+    typeof payload.command === "string" &&
+    payload.command.trim()
+      ? payload.command.trim()
+      : null;
+  const exitCode =
+    payload &&
+    typeof payload === "object" &&
+    "exit_code" in payload &&
+    typeof payload.exit_code === "number"
+      ? payload.exit_code
+      : null;
+
+  if (command && exitCode !== null) {
+    return `Command finished with exit code ${exitCode}: ${command}`;
+  }
+  if (command) {
+    return `Command finished: ${command}`;
+  }
+  if (exitCode !== null) {
+    return `Command finished with exit code ${exitCode}.`;
+  }
+
+  return "Command finished.";
+}
+
+function summarizeAgentMessage(payload: unknown): string {
+  if (
+    payload &&
+    typeof payload === "object" &&
+    "message" in payload &&
+    typeof payload.message === "string" &&
+    payload.message.trim()
+  ) {
+    return payload.message.trim();
+  }
+
+  return "Agent update received.";
 }
 
 function readToolCallName(payload: unknown): string | null {
