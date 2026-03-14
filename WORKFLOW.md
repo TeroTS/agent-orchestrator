@@ -17,7 +17,19 @@ workspace:
   root: ./.symphony/workspaces
 hooks:
   after_create: |
-    git clone --quiet --no-local "$(git -C ../../.. rev-parse --show-toplevel)" .
+    set -eu
+    repo_root="$(git -C ../../.. rev-parse --show-toplevel)"
+    git clone --quiet --no-local "$repo_root" .
+    fetch_url="$(git -C "$repo_root" remote get-url origin)"
+    push_url="$(git -C "$repo_root" remote get-url --push origin 2>/dev/null || true)"
+    if [ -z "$fetch_url" ]; then
+      echo "Source repository must have an origin remote." >&2
+      exit 1
+    fi
+    git remote set-url origin "$fetch_url"
+    if [ -n "$push_url" ]; then
+      git remote set-url --push origin "$push_url"
+    fi
   before_run: |
     if [ -d ../../../node_modules ] && [ ! -e node_modules ]; then
       ln -s ../../../node_modules node_modules
@@ -46,12 +58,12 @@ Continuation context:
 - Avoid repeating completed investigation or validation unless new changes require it.
   {% endif %}
 
-Issue context:
-Issue ID: {{ issue.id }}
+Ticket context:
+Ticket ID: {{ issue.id }}
 Branch Name: {{ issue.branchName }}
 Identifier: {{ issue.identifier }}
 Title: {{ issue.title }}
-Current status: {{ issue.state }}
+Current ticket status: {{ issue.state }}
 Labels: {{ issue.labels }}
 URL: {{ issue.url }}
 
@@ -62,7 +74,7 @@ Description:
 No description provided.
 {% endif %}
 
-Recent comments:
+Recent ticket comments:
 {% if issue.comments.size > 0 %}
 {% for comment in issue.comments %}
 
@@ -74,28 +86,30 @@ Recent comments:
 
 Execution rules:
 
-1. Work only inside the provided workspace for this issue.
+1. Work only inside the provided workspace for this ticket.
 2. Operate autonomously and complete the task end to end unless blocked by missing auth, permissions, or required external systems.
-3. Reproduce the issue or confirm the requested change before implementing when practical.
+3. Reproduce the ticket or confirm the requested change before implementing when practical.
 4. Prefer targeted validation that proves the changed behavior directly.
 5. Do not commit directly to `main`.
-6. Work on an issue branch. If `Branch Name` is present, use it. Otherwise create a deterministic branch from the issue identifier and title, and reuse the same branch on later `Rework` runs.
-7. After the implementation work and validation are complete, push the branch and open or update a GitHub pull request before posting your final Linear completion comment.
-8. The GitHub pull request body must include a machine-readable line exactly in the form `Linear Issue: {{ issue.identifier }}`.
-9. If Linear access is available, use `linear_graphql` only when the task needs tracker context or other Linear operations that are not covered by a dedicated tool.
-10. Linear lookup rules:
+6. Work on a ticket branch. If `Branch Name` is present, use it. Otherwise create a deterministic branch from the ticket identifier and title, and reuse the same branch on later `Rework` runs.
+7. After the implementation work and validation are complete, publish the ticket branch and open or update a GitHub pull request before posting your final Linear completion comment.
+8. Use the repository's standard push/publish workflow from the local `push` skill for the exact GitHub CLI procedure.
+9. Do not create GitHub issues for ticket delivery.
+10. The GitHub pull request body must include a machine-readable line exactly in the form `Linear Issue: {{ issue.identifier }}`.
+11. If Linear access is available, use `linear_graphql` only when the task needs tracker context or other Linear operations that are not covered by a dedicated tool.
+12. Linear lookup rules:
 
-- The current Linear issue id is already provided in this prompt as `Issue ID`. Use that provided id for `linear_add_issue_comment`.
-- Do not use `linear_graphql` just to look up the current issue id for the completion comment.
-- To fetch a Linear issue by ticket identifier such as `OWN-15`, query the `issues` connection with an identifier filter, for example:
+- The current Linear ticket id is already provided in this prompt as `Ticket ID`. Use that provided id for `linear_add_issue_comment`.
+- Do not use `linear_graphql` just to look up the current ticket id for the completion comment.
+- To fetch a Linear ticket by ticket identifier such as `OWN-15`, query the `issues` connection with an identifier filter, for example:
   `query IssueByIdentifier($identifier: String!) { issues(filter: { identifier: { eq: $identifier } }) { nodes { id identifier title } } }`
-- Use the returned issue `id` for follow-up operations.
+- Use the returned ticket `id` for follow-up operations.
 - Do not use `issueV2(...)`.
 - Do not use `issue(identifier: ...)`.
 - `issue(id: ...)` is only for a known Linear issue id / UUID, not for identifier-based lookup.
 
-11. When the implementation work is complete and validation passes, call `linear_add_issue_comment` exactly once with the provided `Issue ID` and a 2-4 sentence plain-text summary of what changed and how you validated it.
-12. Include the GitHub pull request URL in that `linear_add_issue_comment` body.
-13. Do not use `linear_graphql` to post the completion comment unless `linear_add_issue_comment` is unavailable or clearly failing.
-14. Post the Linear completion comment before your final output.
-15. Final output must summarize completed work, validation run, and any remaining blocker.
+13. When the implementation work is complete and validation passes, call `linear_add_issue_comment` exactly once with the provided `Ticket ID` and a 2-4 sentence plain-text summary of what changed and how you validated it.
+14. Include the GitHub pull request URL in that `linear_add_issue_comment` body.
+15. Do not use `linear_graphql` to post the completion comment unless `linear_add_issue_comment` is unavailable or clearly failing.
+16. Post the Linear completion comment before your final output.
+17. Final output must summarize completed work, validation run, and any remaining blocker.

@@ -17,6 +17,7 @@ description:
 - Push current branch changes to `origin` safely.
 - Create a PR if none exists for the branch, otherwise update the existing PR.
 - Keep branch history clean when remote has moved.
+- Use one deterministic `gh` command sequence instead of ad hoc PR creation.
 
 ## Related Skills
 
@@ -27,33 +28,27 @@ description:
 
 1. Identify current branch and confirm remote state.
 2. Run local validation (`./scripts/verify`) before pushing.
-3. Push branch to `origin` with upstream tracking if needed, using whatever
-   remote URL is already configured.
-4. If push is not clean/rejected:
+3. Confirm the working tree is committed and you know the Linear ticket
+   identifier, title, and URL needed for the PR metadata.
+4. Publish the current branch with this exact sequence:
+   - `branch="$(git branch --show-current)"`
+   - stop if `"$branch"` is empty or equals `main`
+   - stop if `git status --porcelain` is non-empty
+   - `repo="$(gh repo view --json nameWithOwner -q .nameWithOwner)"`
+   - `git push -u origin HEAD`
+   - `existing_pr_url="$(gh pr list --repo "$repo" --head "$branch" --state open --json number,url --jq 'if length == 1 then .[0].url elif length == 0 then \"\" else error(\"multiple open pull requests for branch\") end')"`
+   - set `pr_title="<TICKET-ID>: <ticket title>"`
+   - write a completed PR body file from `.github/pull_request_template.md`
+   - if `"$existing_pr_url"` is empty, run `gh pr create --repo "$repo" --base main --head "$branch" --title "$pr_title" --body-file "$pr_body_file"`
+   - otherwise run `gh pr edit "$existing_pr_url" --title "$pr_title" --body-file "$pr_body_file"`
+   - finish with `gh pr view --repo "$repo" --json url -q .url`
+5. If publish fails:
    - If the failure is a non-fast-forward or sync problem, run the `pull`
-     skill to merge `origin/main`, resolve conflicts, and rerun validation.
-   - Push again; use `--force-with-lease` only when history was rewritten.
-   - If the failure is due to auth, permissions, or workflow restrictions on
-     the configured remote, stop and surface the exact error instead of
-     rewriting remotes or switching protocols as a workaround.
-
-5. Ensure a PR exists for the branch:
-   - If no PR exists, create one.
-   - If a PR exists and is open, update it.
-   - If branch is tied to a closed/merged PR, create a new branch + PR.
-   - Write a proper PR title that clearly describes the change outcome
-   - For branch updates, explicitly reconsider whether current PR title still
-     matches the latest scope; update it if it no longer does.
-6. Write/update PR body explicitly using `.github/pull_request_template.md`:
-   - Fill every section with concrete content for this change.
-   - Replace all placeholder comments (`<!-- ... -->`).
-   - Keep bullets/checkboxes where template expects them.
-   - If PR already exists, refresh body content so it reflects the total PR
-     scope (all intended work on the branch), not just the newest commits,
-     including newly added work, removed work, or changed approach.
-   - Do not reuse stale description text from earlier iterations.
-7. Ensure the PR body is fully filled out and matches `.github/pull_request_template.md`.
-8. Reply with the PR URL from `gh pr view`.
+     skill to merge `origin/main`, resolve conflicts, rerun validation, and
+     retry the same publish sequence.
+   - If the failure is due to auth, permissions, branch mismatch, dirty
+     working tree, or workflow restrictions, stop and surface the exact error.
+6. Reply with the PR URL printed by `gh pr view --json url -q .url`.
 
 ## Commands
 
@@ -64,49 +59,49 @@ branch=$(git branch --show-current)
 # Minimal validation gate
 ./scripts/verify
 
-# Initial push: respect the current origin remote.
-git push -u origin HEAD
+# Fill these from the current Linear ticket context.
+ticket_identifier="<OWN-123>"
+ticket_title="<Linear ticket title>"
+ticket_url="<https://linear.app/...>"
+branch="$(git branch --show-current)"
 
-# If that failed because the remote moved, use the pull skill. After
-# pull-skill resolution and re-validation, retry the normal push:
-git push -u origin HEAD
-
-# If the configured remote rejects the push for auth, permissions, or workflow
-# restrictions, stop and surface the exact error.
-
-# Only if history was rewritten locally:
-git push --force-with-lease origin HEAD
-
-# Ensure a PR exists (create only if missing)
-pr_state=$(gh pr view --json state -q .state 2>/dev/null || true)
-if [ "$pr_state" = "MERGED" ] || [ "$pr_state" = "CLOSED" ]; then
-  echo "Current branch is tied to a closed PR; create a new branch + PR." >&2
+if [ -z "$branch" ]; then
+  echo "Current HEAD is detached." >&2
   exit 1
 fi
 
-# Write a clear, human-friendly title that summarizes the shipped change.
-pr_title="<clear PR title written for this change>"
-if [ -z "$pr_state" ]; then
-  gh pr create --title "$pr_title"
-else
-  # Reconsider title on every branch update; edit if scope shifted.
-  gh pr edit --title "$pr_title"
+if [ "$branch" = "main" ]; then
+  echo "Refusing to publish from main." >&2
+  exit 1
 fi
 
-# Write/edit PR body to match .github/pull_request_template.md before final review.
-# Example workflow:
-# 1) open the template and draft body content for this PR
-# 2) gh pr edit --body-file /tmp/pr_body.md
-# 3) for branch updates, re-check that title/body still match current diff
+if [ -n "$(git status --porcelain)" ]; then
+  echo "Working tree must be clean before publishing." >&2
+  exit 1
+fi
 
-# Show PR URL for the reply
-gh pr view --json url -q .url
+repo="$(gh repo view --json nameWithOwner -q .nameWithOwner)"
+git push -u origin HEAD
+
+existing_pr_url="$(gh pr list --repo "$repo" --head "$branch" --state open --json number,url --jq 'if length == 1 then .[0].url elif length == 0 then "" else error("multiple open pull requests for branch") end')"
+pr_title="$ticket_identifier: $ticket_title"
+pr_body_file="$(mktemp)"
+
+# Build the PR body from .github/pull_request_template.md and replace all placeholders.
+
+if [ -z "$existing_pr_url" ]; then
+  gh pr create --repo "$repo" --base main --head "$branch" --title "$pr_title" --body-file "$pr_body_file"
+else
+  gh pr edit "$existing_pr_url" --title "$pr_title" --body-file "$pr_body_file"
+fi
+
+gh pr view --repo "$repo" --json url -q .url
 ```
 
 ## Notes
 
-- Do not use `--force`; only use `--force-with-lease` as the last resort.
-- Distinguish sync problems from remote auth/permission problems:
-  - Use the `pull` skill for non-fast-forward or stale-branch issues.
-  - Surface auth, permissions, or workflow restrictions directly instead of
-    changing remotes or protocols.
+- Do not create GitHub issues for ticket delivery.
+- Do not run bare `gh pr create`; always pass explicit `--repo`, `--base`,
+  `--head`, `--title`, and `--body-file` arguments.
+- If `gh pr list` reports multiple open PRs for the branch, stop and surface
+  that error instead of guessing which PR to reuse.

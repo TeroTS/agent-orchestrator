@@ -102,6 +102,43 @@ describe("repository tooling", () => {
       ),
     ).resolves.toEqual(expect.stringContaining("Linear Issue:"));
     await expect(
+      readFile(resolve(repoRoot, ".codex/skills/push/SKILL.md"), "utf8"),
+    ).resolves.toEqual(expect.not.stringContaining("scripts/publish-pr.mjs"));
+    await expect(
+      readFile(resolve(repoRoot, ".codex/skills/push/SKILL.md"), "utf8"),
+    ).resolves.toEqual(
+      expect.stringContaining(
+        'gh pr list --repo "$repo" --head "$branch" --state open',
+      ),
+    );
+    await expect(
+      readFile(resolve(repoRoot, ".codex/skills/push/SKILL.md"), "utf8"),
+    ).resolves.toEqual(expect.stringContaining("git status --porcelain"));
+    await expect(
+      readFile(resolve(repoRoot, ".codex/skills/push/SKILL.md"), "utf8"),
+    ).resolves.toEqual(
+      expect.stringContaining(
+        "gh repo view --json nameWithOwner -q .nameWithOwner",
+      ),
+    );
+    await expect(
+      readFile(resolve(repoRoot, ".codex/skills/push/SKILL.md"), "utf8"),
+    ).resolves.toEqual(
+      expect.stringContaining(
+        'gh pr create --repo "$repo" --base main --head "$branch"',
+      ),
+    );
+    await expect(
+      readFile(resolve(repoRoot, ".codex/skills/push/SKILL.md"), "utf8"),
+    ).resolves.toEqual(
+      expect.stringContaining('gh pr view --repo "$repo" --json url -q .url'),
+    );
+    await expect(
+      readFile(resolve(repoRoot, ".codex/skills/push/SKILL.md"), "utf8"),
+    ).resolves.toEqual(
+      expect.stringContaining("Do not run bare `gh pr create`"),
+    );
+    await expect(
       readFile(resolve(repoRoot, ".npmrc"), "utf8"),
     ).resolves.toMatch(/^registry=https:\/\/registry\.npmjs\.org\/\s*$/m);
     await expect(

@@ -23,6 +23,7 @@ describe("repository WORKFLOW.md", () => {
     expect(definition.promptTemplate).toContain("{{ issue.id }}");
     expect(definition.promptTemplate).toContain("{{ issue.branchName }}");
     expect(definition.promptTemplate).toContain("{{ issue.identifier }}");
+    expect(definition.promptTemplate).toContain("Ticket context:");
     expect(definition.promptTemplate).toContain(
       "{% if issue.comments.size > 0 %}",
     );
@@ -37,7 +38,26 @@ describe("repository WORKFLOW.md", () => {
       "open or update a GitHub pull request",
     );
     expect(definition.promptTemplate).toContain(
+      "Work only inside the provided workspace for this ticket",
+    );
+    expect(definition.promptTemplate).toContain("Work on a ticket branch");
+    expect(definition.promptTemplate).toContain(
+      "Use the repository's standard push/publish workflow from the local `push` skill",
+    );
+    expect(definition.promptTemplate).toContain(
+      "Do not create GitHub issues for ticket delivery",
+    );
+    expect(definition.promptTemplate).toContain(
       "Include the GitHub pull request URL in that `linear_add_issue_comment` body",
+    );
+    expect(definition.promptTemplate).not.toContain(
+      'gh pr list --head "$branch" --state open --json number,url',
+    );
+    expect(definition.promptTemplate).not.toContain(
+      'gh pr create --base main --head "$branch"',
+    );
+    expect(definition.promptTemplate).not.toContain(
+      "gh pr view --json url -q .url",
     );
     expect(definition.promptTemplate).toContain("Linear Issue:");
     expect(definition.promptTemplate).toContain(
@@ -47,7 +67,7 @@ describe("repository WORKFLOW.md", () => {
       "Use that provided id for `linear_add_issue_comment`",
     );
     expect(definition.promptTemplate).toContain(
-      "Do not use `linear_graphql` just to look up the current issue id",
+      "Do not use `linear_graphql` just to look up the current ticket id",
     );
     expect(definition.promptTemplate).toContain("Do not use `issueV2(...)`");
     expect(definition.promptTemplate).toContain(

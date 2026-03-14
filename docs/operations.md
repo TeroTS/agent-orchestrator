@@ -33,6 +33,9 @@ Use environment indirection for secrets such as `LINEAR_API_KEY`.
 
 - Normal agent delivery path is: issue branch -> GitHub PR -> Linear completion
   comment with PR URL -> `In Review`.
+- Issue workspaces are cloned locally for speed, then their `origin` remote is
+  rewritten to match the source checkout's GitHub remote so `git push` and `gh`
+  work inside the workspace.
 - Agent runs should not hand off successfully without a GitHub PR URL in the
   final `linear_add_issue_comment` body.
 - `Done` is expected to come from merge-driven automation or follow-up process,
