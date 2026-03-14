@@ -1,48 +1,64 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
-import { startStatusServer } from "../../src/observability/status-server.js";
+import { handleStatusRequest } from "../../src/observability/status-handler.js";
 
-const servers: Array<{ stop: () => Promise<void> }> = [];
+function createSnapshot() {
+  return {
+    running: [
+      {
+        issueId: "issue-1",
+        identifier: "ABC-1",
+        state: "In Progress",
+        sessionId: "thread-1-turn-1",
+        startedAt: "2026-03-11T00:00:00.000Z",
+      },
+    ],
+    retries: [
+      {
+        issueId: "issue-2",
+        identifier: "ABC-2",
+        attempt: 2,
+        dueAtMs: 123456,
+        error: "retrying",
+      },
+    ],
+    completedIssueIds: ["ABC-3"],
+  };
+}
 
-afterEach(async () => {
-  await Promise.all(servers.map((server) => server.stop()));
-  servers.length = 0;
-});
+async function request(options: {
+  method?: string;
+  url: string;
+  snapshot?: () => unknown;
+  refresh?: () => Promise<unknown> | unknown;
+  logger?: {
+    debug: ReturnType<typeof vi.fn>;
+    info: ReturnType<typeof vi.fn>;
+    warn: ReturnType<typeof vi.fn>;
+    error: ReturnType<typeof vi.fn>;
+  };
+}) {
+  const result = await handleStatusRequest({
+    method: options.method,
+    url: options.url,
+    snapshot: options.snapshot ?? createSnapshot,
+    refresh: options.refresh,
+    logger: options.logger,
+  });
 
-describe("startStatusServer", () => {
+  return {
+    status: result.statusCode,
+    contentType: result.contentType,
+    json: () => JSON.parse(result.body) as unknown,
+    text: () => result.body,
+  };
+}
+
+describe("handleStatusRequest", () => {
   it("serves summary state, list endpoints, and html status", async () => {
-    const server = await startStatusServer({
-      port: 0,
-      snapshot: () => ({
-        running: [
-          {
-            issueId: "issue-1",
-            identifier: "ABC-1",
-            state: "In Progress",
-            sessionId: "thread-1-turn-1",
-            startedAt: "2026-03-11T00:00:00.000Z",
-          },
-        ],
-        retries: [
-          {
-            issueId: "issue-2",
-            identifier: "ABC-2",
-            attempt: 2,
-            dueAtMs: 123456,
-            error: "retrying",
-          },
-        ],
-        completedIssueIds: ["ABC-3"],
-      }),
-      refresh: async () => ({
-        queued: true,
-      }),
-    });
-    servers.push(server);
-
-    const stateResponse = await fetch(`${server.baseUrl}/api/v1/state`);
+    const stateResponse = await request({ url: "/api/v1/state" });
     expect(stateResponse.status).toBe(200);
-    await expect(stateResponse.json()).resolves.toEqual(
+    expect(stateResponse.json()).toEqual(
       expect.objectContaining({
         generated_at: expect.any(String),
         counts: {
@@ -70,9 +86,9 @@ describe("startStatusServer", () => {
       }),
     );
 
-    const issuesResponse = await fetch(`${server.baseUrl}/api/v1/issues`);
+    const issuesResponse = await request({ url: "/api/v1/issues" });
     expect(issuesResponse.status).toBe(200);
-    await expect(issuesResponse.json()).resolves.toEqual([
+    expect(issuesResponse.json()).toEqual([
       expect.objectContaining({
         issue_identifier: "ABC-1",
         status: "running",
@@ -87,73 +103,44 @@ describe("startStatusServer", () => {
       }),
     ]);
 
-    const runningResponse = await fetch(`${server.baseUrl}/api/v1/running`);
+    const runningResponse = await request({ url: "/api/v1/running" });
     expect(runningResponse.status).toBe(200);
-    await expect(runningResponse.json()).resolves.toEqual([
+    expect(runningResponse.json()).toEqual([
       expect.objectContaining({
         issue_identifier: "ABC-1",
       }),
     ]);
 
-    const retriesResponse = await fetch(`${server.baseUrl}/api/v1/retries`);
+    const retriesResponse = await request({ url: "/api/v1/retries" });
     expect(retriesResponse.status).toBe(200);
-    await expect(retriesResponse.json()).resolves.toEqual([
+    expect(retriesResponse.json()).toEqual([
       expect.objectContaining({
         issue_identifier: "ABC-2",
       }),
     ]);
 
-    const completedResponse = await fetch(`${server.baseUrl}/api/v1/completed`);
+    const completedResponse = await request({ url: "/api/v1/completed" });
     expect(completedResponse.status).toBe(200);
-    await expect(completedResponse.json()).resolves.toEqual(["ABC-3"]);
+    expect(completedResponse.json()).toEqual(["ABC-3"]);
 
-    const healthResponse = await fetch(`${server.baseUrl}/api/v1/health`);
+    const healthResponse = await request({ url: "/api/v1/health" });
     expect(healthResponse.status).toBe(200);
-    await expect(healthResponse.json()).resolves.toEqual({ ok: true });
+    expect(healthResponse.json()).toEqual({ ok: true });
 
-    const readyResponse = await fetch(`${server.baseUrl}/api/v1/ready`);
+    const readyResponse = await request({ url: "/api/v1/ready" });
     expect(readyResponse.status).toBe(200);
-    await expect(readyResponse.json()).resolves.toEqual({ ready: true });
+    expect(readyResponse.json()).toEqual({ ready: true });
 
-    const dashboardResponse = await fetch(`${server.baseUrl}/`);
+    const dashboardResponse = await request({ url: "/" });
     expect(dashboardResponse.status).toBe(200);
-    await expect(dashboardResponse.text()).resolves.toContain(
-      "completed_issue_ids",
-    );
+    expect(dashboardResponse.contentType).toBe("text/html; charset=utf-8");
+    expect(dashboardResponse.text()).toContain("completed_issue_ids");
   });
 
   it("serves issue-scoped state and returns 404 for unknown issues", async () => {
-    const server = await startStatusServer({
-      port: 0,
-      snapshot: () => ({
-        running: [
-          {
-            issueId: "issue-1",
-            identifier: "ABC-1",
-            state: "In Progress",
-            startedAt: "2026-03-11T00:00:00.000Z",
-          },
-        ],
-        retries: [
-          {
-            issueId: "issue-2",
-            identifier: "ABC-2",
-            attempt: 2,
-            dueAtMs: 123456,
-            error: "retrying",
-          },
-        ],
-        completedIssueIds: ["ABC-3"],
-      }),
-      refresh: async () => ({
-        queued: true,
-      }),
-    });
-    servers.push(server);
-
-    const issueResponse = await fetch(`${server.baseUrl}/api/v1/issues/ABC-2`);
+    const issueResponse = await request({ url: "/api/v1/issues/ABC-2" });
     expect(issueResponse.status).toBe(200);
-    await expect(issueResponse.json()).resolves.toEqual(
+    expect(issueResponse.json()).toEqual(
       expect.objectContaining({
         issue_identifier: "ABC-2",
         issue_id: "issue-2",
@@ -170,11 +157,11 @@ describe("startStatusServer", () => {
       }),
     );
 
-    const missingIssueResponse = await fetch(
-      `${server.baseUrl}/api/v1/issues/MISSING-1`,
-    );
+    const missingIssueResponse = await request({
+      url: "/api/v1/issues/MISSING-1",
+    });
     expect(missingIssueResponse.status).toBe(404);
-    await expect(missingIssueResponse.json()).resolves.toEqual({
+    expect(missingIssueResponse.json()).toEqual({
       error: {
         code: "issue_not_found",
         message: "Issue MISSING-1 is not present in the current runtime state.",
@@ -182,47 +169,41 @@ describe("startStatusServer", () => {
     });
   });
 
-  it("queues refresh/reconcile requests and logs request metadata", async () => {
+  it("queues refresh and reconcile requests and logs request metadata", async () => {
     const logger = {
       debug: vi.fn(),
       info: vi.fn(),
       warn: vi.fn(),
       error: vi.fn(),
     };
-    const server = await startStatusServer({
-      port: 0,
-      snapshot: () => ({
-        running: [],
-        retries: [],
-        completedIssueIds: [],
-      }),
-      refresh: async () => ({
-        queued: true,
-      }),
+    const refresh = vi.fn(async () => ({
+      queued: true,
+    }));
+
+    const refreshResponse = await request({
+      method: "POST",
+      url: "/api/v1/refresh",
+      refresh,
       logger,
     });
-    servers.push(server);
-
-    const refreshResponse = await fetch(`${server.baseUrl}/api/v1/refresh`, {
-      method: "POST",
-    });
     expect(refreshResponse.status).toBe(202);
-    await expect(refreshResponse.json()).resolves.toEqual({
+    expect(refreshResponse.json()).toEqual({
       queued: true,
       coalesced: false,
       requested_at: expect.any(String),
       operations: ["poll", "reconcile"],
     });
 
-    const reconcileResponse = await fetch(
-      `${server.baseUrl}/api/v1/reconcile`,
-      {
-        method: "POST",
-      },
-    );
+    const reconcileResponse = await request({
+      method: "POST",
+      url: "/api/v1/reconcile",
+      refresh,
+      logger,
+    });
     expect(reconcileResponse.status).toBe(202);
+    expect(refresh).toHaveBeenCalledTimes(2);
 
-    await fetch(`${server.baseUrl}/missing`);
+    await request({ url: "/missing", logger });
 
     expect(logger.info).toHaveBeenCalledWith(
       "status request completed",
@@ -243,45 +224,27 @@ describe("startStatusServer", () => {
   });
 
   it("returns 404 for unknown paths", async () => {
-    const server = await startStatusServer({
-      port: 0,
-      snapshot: () => ({
-        running: [],
-        retries: [],
-        completedIssueIds: [],
-      }),
-    });
-    servers.push(server);
-
-    const response = await fetch(`${server.baseUrl}/missing`);
+    const response = await request({ url: "/missing" });
     expect(response.status).toBe(404);
+    expect(response.text()).toBe("Not Found");
   });
 
   it("returns 405 for unsupported methods on known routes", async () => {
-    const server = await startStatusServer({
-      port: 0,
-      snapshot: () => ({
-        running: [],
-        retries: [],
-        completedIssueIds: [],
-      }),
-    });
-    servers.push(server);
-
-    const statePost = await fetch(`${server.baseUrl}/api/v1/state`, {
+    const statePost = await request({
       method: "POST",
+      url: "/api/v1/state",
     });
     expect(statePost.status).toBe(405);
-    await expect(statePost.json()).resolves.toEqual({
+    expect(statePost.json()).toEqual({
       error: {
         code: "method_not_allowed",
         message: "Method POST is not allowed for /api/v1/state.",
       },
     });
 
-    const refreshGet = await fetch(`${server.baseUrl}/api/v1/refresh`);
+    const refreshGet = await request({ url: "/api/v1/refresh" });
     expect(refreshGet.status).toBe(405);
-    await expect(refreshGet.json()).resolves.toEqual({
+    expect(refreshGet.json()).toEqual({
       error: {
         code: "method_not_allowed",
         message: "Method GET is not allowed for /api/v1/refresh.",

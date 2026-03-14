@@ -748,6 +748,17 @@ export class CodexAppServerClient {
           : "ticket_delivery_failed",
       payload: result,
     });
+    if (result.success !== true) {
+      const currentTurn = this.currentTurn;
+      if (currentTurn) {
+        clearTimeout(currentTurn.timer);
+        this.currentTurn = null;
+        currentTurn.reject(
+          new CodexAppServerError(result.error.code, result.error.message),
+        );
+      }
+      return;
+    }
     this.finishTurnToolCall();
   }
 
@@ -1123,16 +1134,24 @@ function buildLinearDynamicToolSpecs(includeTicketDelivery: boolean): Array<{
       inputSchema: {
         type: "object",
         additionalProperties: false,
-        required: ["summary", "validation"],
+        required: ["summary"],
         properties: {
           summary: {
             type: "string",
             description: "A short plain-text summary of what changed.",
           },
+          targeted_checks: {
+            type: "array",
+            description:
+              "Additional targeted validation checks beyond ./scripts/verify.",
+            items: {
+              type: "string",
+            },
+          },
           validation: {
             type: "string",
             description:
-              "A short plain-text summary of how the change was validated.",
+              "Deprecated compatibility field for a single targeted check.",
           },
         },
       },
@@ -1432,6 +1451,16 @@ async function executeCompleteTicketDeliveryToolCall(
       "ticket_delivery_git_status",
     );
 
+    await runCommandExpectSuccess(
+      runCommand,
+      {
+        command: "./scripts/verify",
+        args: [],
+        cwd: workspacePath,
+      },
+      "ticket_delivery_verify",
+    );
+
     let commitSha: string | undefined;
     if (status.stdout.trim()) {
       await runCommandExpectSuccess(
@@ -1531,7 +1560,7 @@ async function executeCompleteTicketDeliveryToolCall(
         title: deliveryConfig.title,
         ticketUrl: deliveryConfig.url,
         summary: parsed.summary,
-        validation: parsed.validation,
+        targetedChecks: parsed.targetedChecks,
       }),
       "utf8",
     );
@@ -1606,7 +1635,7 @@ async function executeCompleteTicketDeliveryToolCall(
     });
     const comment = await client.createIssueComment(
       deliveryConfig.issueId,
-      buildCompletionComment(parsed.summary, parsed.validation, prUrl),
+      buildCompletionComment(parsed.summary, parsed.targetedChecks, prUrl),
     );
 
     return {
@@ -1649,7 +1678,7 @@ async function executeCompleteTicketDeliveryToolCall(
 }
 
 type CompleteTicketDeliveryArguments =
-  | { ok: true; summary: string; validation: string }
+  | { ok: true; summary: string; targetedChecks: string[] }
   | {
       ok: false;
       error: {
@@ -1666,13 +1695,15 @@ function parseCompleteTicketDeliveryArguments(
       ok: false,
       error: {
         code: "ticket_delivery_invalid_input",
-        message: "tool input must be an object with summary and validation.",
+        message:
+          "tool input must be an object with summary and optional targeted_checks.",
       },
     };
   }
 
   const extraKeys = Object.keys(input).filter(
-    (key) => key !== "summary" && key !== "validation",
+    (key) =>
+      key !== "summary" && key !== "targeted_checks" && key !== "validation",
   );
   if (extraKeys.length > 0) {
     return {
@@ -1688,7 +1719,16 @@ function parseCompleteTicketDeliveryArguments(
     typeof (input as { summary?: unknown }).summary === "string"
       ? (input as { summary: string }).summary.trim()
       : "";
-  const validation =
+  const targetedChecks =
+    Array.isArray((input as { targeted_checks?: unknown }).targeted_checks) &&
+    (input as { targeted_checks: unknown[] }).targeted_checks.every(
+      (item) => typeof item === "string",
+    )
+      ? (input as { targeted_checks: string[] }).targeted_checks
+          .map((item) => item.trim())
+          .filter(Boolean)
+      : null;
+  const deprecatedValidation =
     typeof (input as { validation?: unknown }).validation === "string"
       ? (input as { validation: string }).validation.trim()
       : "";
@@ -1703,12 +1743,13 @@ function parseCompleteTicketDeliveryArguments(
     };
   }
 
-  if (!validation) {
+  if (targetedChecks === null) {
     return {
       ok: false,
       error: {
         code: "ticket_delivery_invalid_input",
-        message: "validation must be a non-empty string.",
+        message:
+          "targeted_checks must be an array of strings when it is provided.",
       },
     };
   }
@@ -1716,7 +1757,12 @@ function parseCompleteTicketDeliveryArguments(
   return {
     ok: true,
     summary,
-    validation,
+    targetedChecks:
+      targetedChecks.length > 0
+        ? targetedChecks
+        : deprecatedValidation
+          ? [deprecatedValidation]
+          : [],
   };
 }
 
@@ -1801,57 +1847,62 @@ function normalizeBulletList(text: string): string[] {
 }
 
 function renderPullRequestBody(
-  _template: string,
+  template: string,
   input: {
     identifier: string;
     title: string;
     ticketUrl: string | null;
     summary: string;
-    validation: string;
+    targetedChecks: string[];
   },
 ): string {
   const summaryBullets = normalizeBulletList(input.summary)
     .map((line) => `- ${line}`)
     .join("\n");
-  const validationBullets = normalizeBulletList(input.validation)
+  const targetedCheckBullets = input.targetedChecks
     .map((line) => `- [x] ${line}`)
     .join("\n");
   const context = input.ticketUrl
     ? `Implements ${input.identifier}: ${input.title}. Ticket: ${input.ticketUrl}`
     : `Implements ${input.identifier}: ${input.title}.`;
+  const testPlan = ["- [x] `./scripts/verify`", targetedCheckBullets]
+    .filter(Boolean)
+    .join("\n");
 
-  return [
-    `Linear Issue: ${input.identifier}`,
-    "",
-    "#### Context",
-    "",
-    context,
-    "",
-    "#### TL;DR",
-    "",
-    input.summary,
-    "",
-    "#### Summary",
-    "",
-    summaryBullets,
-    "",
-    "#### Alternatives",
-    "",
-    "- None documented.",
-    "",
-    "#### Test Plan",
-    "",
-    "- [x] `./scripts/verify`",
-    validationBullets,
-  ].join("\n");
+  return template
+    .replace(/^Linear Issue:.*$/m, `Linear Issue: ${input.identifier}`)
+    .replace(
+      /#### Context\s*\n\s*\n[\s\S]*?\n#### TL;DR/m,
+      `#### Context\n\n${context}\n\n#### TL;DR`,
+    )
+    .replace(
+      /#### TL;DR\s*\n\s*\n[\s\S]*?\n#### Summary/m,
+      `#### TL;DR\n\n${input.summary}\n\n#### Summary`,
+    )
+    .replace(
+      /#### Summary\s*\n\s*\n[\s\S]*?\n#### Alternatives/m,
+      `#### Summary\n\n${summaryBullets}\n\n#### Alternatives`,
+    )
+    .replace(
+      /#### Alternatives\s*\n\s*\n[\s\S]*?\n#### Test Plan/m,
+      "#### Alternatives\n\n- None documented.\n\n#### Test Plan",
+    )
+    .replace(
+      /#### Test Plan\s*\n\s*\n[\s\S]*$/m,
+      `#### Test Plan\n\n${testPlan}`,
+    );
 }
 
 function buildCompletionComment(
   summary: string,
-  validation: string,
+  targetedChecks: string[],
   prUrl: string,
 ): string {
-  return `${summary} Validation: ${validation} PR: ${prUrl}`;
+  const validationSummary =
+    targetedChecks.length > 0
+      ? targetedChecks.join("; ")
+      : "`./scripts/verify`";
+  return `${summary} Validation: ${validationSummary}. PR: ${prUrl}`;
 }
 
 function parseLinearGraphqlArguments(input: unknown):

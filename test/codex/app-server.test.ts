@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -199,7 +199,7 @@ rl.on("line", (line) => {
           turnId: "turn-1",
           arguments: {
             summary: "Added the requested files.",
-            validation: "Verified the files exist."
+            targeted_checks: ["Verified the files exist."]
           }
         }
       });
@@ -734,53 +734,58 @@ describe("CodexAppServerClient", () => {
       "codex-complete-ticket-delivery",
       "complete-ticket-delivery",
     );
-    const commandRunner = vi
-      .fn()
-      .mockResolvedValueOnce({
-        stdout: "feature/abc-1\n",
-        stderr: "",
-        exitCode: 0,
-      })
-      .mockResolvedValueOnce({
-        stdout: " M foo.ts\n",
-        stderr: "",
-        exitCode: 0,
-      })
-      .mockResolvedValueOnce({
-        stdout: "",
-        stderr: "",
-        exitCode: 0,
-      })
-      .mockResolvedValueOnce({
-        stdout: "[feature/abc-1 abc1234] ABC-1: Example\n",
-        stderr: "",
-        exitCode: 0,
-      })
-      .mockResolvedValueOnce({
-        stdout: "example/repo\n",
-        stderr: "",
-        exitCode: 0,
-      })
-      .mockResolvedValueOnce({
-        stdout: "",
-        stderr: "",
-        exitCode: 0,
-      })
-      .mockResolvedValueOnce({
-        stdout: "",
-        stderr: "",
-        exitCode: 0,
-      })
-      .mockResolvedValueOnce({
-        stdout: "",
-        stderr: "",
-        exitCode: 0,
-      })
-      .mockResolvedValueOnce({
-        stdout: "https://github.com/example/repo/pull/123\n",
-        stderr: "",
-        exitCode: 0,
-      });
+    let prBody = "";
+    const commandRunner = vi.fn(async (input) => {
+      if (
+        input.command === "gh" &&
+        input.args[0] === "pr" &&
+        input.args[1] === "create"
+      ) {
+        const bodyFilePath = input.args[input.args.indexOf("--body-file") + 1];
+        prBody = await readFile(bodyFilePath, "utf8");
+      }
+
+      const command = `${input.command} ${input.args.join(" ")}`.trim();
+      switch (command) {
+        case "git branch --show-current":
+          return { stdout: "feature/abc-1\n", stderr: "", exitCode: 0 };
+        case "git status --porcelain":
+          return { stdout: " M foo.ts\n", stderr: "", exitCode: 0 };
+        case "./scripts/verify":
+          return { stdout: "", stderr: "", exitCode: 0 };
+        case "git add -A":
+          return { stdout: "", stderr: "", exitCode: 0 };
+        case "git commit -m ABC-1: Example":
+          return {
+            stdout: "[feature/abc-1 abc1234] ABC-1: Example\n",
+            stderr: "",
+            exitCode: 0,
+          };
+        case "gh repo view --json nameWithOwner -q .nameWithOwner":
+          return { stdout: "example/repo\n", stderr: "", exitCode: 0 };
+        case "git push -u origin HEAD":
+          return { stdout: "", stderr: "", exitCode: 0 };
+        case 'gh pr list --repo example/repo --head feature/abc-1 --state open --json number,url --jq if length == 1 then .[0].url elif length == 0 then "" else error("multiple open pull requests for branch") end':
+          return { stdout: "", stderr: "", exitCode: 0 };
+        case "gh pr create --repo example/repo --base main --head feature/abc-1 --title ABC-1: Example --body-file":
+          return { stdout: "", stderr: "", exitCode: 0 };
+        case "gh pr view --repo example/repo --json url -q .url":
+          return {
+            stdout: "https://github.com/example/repo/pull/123\n",
+            stderr: "",
+            exitCode: 0,
+          };
+        default:
+          if (
+            input.command === "gh" &&
+            input.args[0] === "pr" &&
+            input.args[1] === "create"
+          ) {
+            return { stdout: "", stderr: "", exitCode: 0 };
+          }
+          throw new Error(`Unexpected command: ${command}`);
+      }
+    });
     const client = new CodexAppServerClient({
       command: `${process.execPath} ${scriptPath}`,
       workspacePath: dir,
@@ -823,7 +828,34 @@ describe("CodexAppServerClient", () => {
         url: "https://linear.app/demo/issue/ABC-1",
         branchName: "feature/abc-1",
         commandRunner,
-        readFileFn: vi.fn().mockResolvedValue(`Linear Issue: <!-- OWN-123 -->`),
+        readFileFn: vi
+          .fn()
+          .mockResolvedValue(
+            [
+              "Linear Issue: <!-- OWN-123 -->",
+              "",
+              "#### Context",
+              "",
+              "<!-- Why is this change needed? Length <= 240 chars -->",
+              "",
+              "#### TL;DR",
+              "",
+              "_<!-- A short description of what we are changing. Use simple language. Assume reader is not familiar with this code. Length <= 120 chars -->_",
+              "",
+              "#### Summary",
+              "",
+              "- <!-- Details of the changes in bullet points -->",
+              "",
+              "#### Alternatives",
+              "",
+              "- <!-- What alternatives have been considered? Why not? -->",
+              "",
+              "#### Test Plan",
+              "",
+              "- [ ] `./scripts/verify`",
+              "- [ ] <!-- Additional targeted checks (list below) -->",
+            ].join("\n"),
+          ),
       },
     });
 
@@ -840,7 +872,135 @@ describe("CodexAppServerClient", () => {
       commentId: "comment-1",
       commitSha: "abc1234",
     });
-    expect(commandRunner).toHaveBeenCalled();
+    expect(
+      commandRunner.mock.calls.map(([input]) => [input.command, input.args]),
+    ).toEqual([
+      ["git", ["branch", "--show-current"]],
+      ["git", ["status", "--porcelain"]],
+      ["./scripts/verify", []],
+      ["git", ["add", "-A"]],
+      ["git", ["commit", "-m", "ABC-1: Example"]],
+      [
+        "gh",
+        ["repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"],
+      ],
+      ["git", ["push", "-u", "origin", "HEAD"]],
+      [
+        "gh",
+        [
+          "pr",
+          "list",
+          "--repo",
+          "example/repo",
+          "--head",
+          "feature/abc-1",
+          "--state",
+          "open",
+          "--json",
+          "number,url",
+          "--jq",
+          'if length == 1 then .[0].url elif length == 0 then "" else error("multiple open pull requests for branch") end',
+        ],
+      ],
+      [
+        "gh",
+        [
+          "pr",
+          "create",
+          "--repo",
+          "example/repo",
+          "--base",
+          "main",
+          "--head",
+          "feature/abc-1",
+          "--title",
+          "ABC-1: Example",
+          "--body-file",
+          expect.any(String),
+        ],
+      ],
+      [
+        "gh",
+        ["pr", "view", "--repo", "example/repo", "--json", "url", "-q", ".url"],
+      ],
+    ]);
+    expect(prBody).toContain("Linear Issue: ABC-1");
+    expect(prBody).toContain("#### Context");
+    expect(prBody).toContain(
+      "Implements ABC-1: Example. Ticket: https://linear.app/demo/issue/ABC-1",
+    );
+    expect(prBody).toContain("#### TL;DR");
+    expect(prBody).toContain("Added the requested files.");
+    expect(prBody).toContain("#### Summary");
+    expect(prBody).toContain("- Added the requested files.");
+    expect(prBody).toContain("#### Alternatives");
+    expect(prBody).toContain("- None documented.");
+    expect(prBody).toContain("#### Test Plan");
+    expect(prBody).toContain("- [x] `./scripts/verify`");
+    expect(prBody).toContain("- [x] Verified the files exist.");
+  });
+
+  it("fails complete_ticket_delivery before publishing when runtime verify fails", async () => {
+    const { dir, scriptPath } = await createScenarioDir(
+      "codex-complete-ticket-delivery-verify-fail",
+      "complete-ticket-delivery",
+    );
+    const fetchFn = vi.fn();
+    const commandRunner = vi
+      .fn()
+      .mockResolvedValueOnce({
+        stdout: "feature/abc-1\n",
+        stderr: "",
+        exitCode: 0,
+      })
+      .mockResolvedValueOnce({
+        stdout: " M foo.ts\n",
+        stderr: "",
+        exitCode: 0,
+      })
+      .mockResolvedValueOnce({
+        stdout: "",
+        stderr: "listen EPERM 127.0.0.1",
+        exitCode: 1,
+      });
+    const client = new CodexAppServerClient({
+      command: `${process.execPath} ${scriptPath}`,
+      workspacePath: dir,
+      approvalPolicy: "never",
+      threadSandbox: "workspace-write",
+      turnSandboxPolicy: { type: "workspaceWrite" },
+      readTimeoutMs: 500,
+      turnTimeoutMs: 1000,
+      linearGraphql: {
+        endpoint: "https://linear.example/graphql",
+        apiKey: "token",
+        projectSlug: "demo",
+        fetchFn,
+      },
+      issueDelivery: {
+        issueId: "issue-1",
+        identifier: "ABC-1",
+        title: "Example",
+        url: "https://linear.app/demo/issue/ABC-1",
+        branchName: "feature/abc-1",
+        commandRunner,
+        readFileFn: vi.fn().mockResolvedValue(`Linear Issue: <!-- OWN-123 -->`),
+      },
+    });
+
+    await client.start();
+    await expect(
+      client.runTurn({
+        prompt: "Hello",
+        title: "ABC-1: Example",
+      }),
+    ).rejects.toThrow(
+      "./scripts/verify failed with exit code 1. listen EPERM 127.0.0.1",
+    );
+    await client.stop();
+
+    expect(fetchFn).not.toHaveBeenCalled();
+    expect(commandRunner).toHaveBeenCalledTimes(3);
   });
 
   it("opts into experimental dynamic tools and advertises input schemas on thread/start", async () => {

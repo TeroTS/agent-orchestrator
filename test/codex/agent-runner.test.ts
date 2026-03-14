@@ -712,7 +712,7 @@ rl.on("line", (line) => {
         turnId: "turn-1",
         arguments: {
           summary: "Added the requested files.",
-          validation: "Verified the files exist."
+          targeted_checks: ["Verified the files exist."]
         }
       }
     });
@@ -732,6 +732,11 @@ rl.on("line", (line) => {
       })
       .mockResolvedValueOnce({
         stdout: "A  testing_0.txt\nA  testing_1.txt\nA  testing_2.txt\n",
+        stderr: "",
+        exitCode: 0,
+      })
+      .mockResolvedValueOnce({
+        stdout: "",
         stderr: "",
         exitCode: 0,
       })
@@ -801,6 +806,109 @@ rl.on("line", (line) => {
         attempt: null,
       }),
     ).resolves.toEqual({ reason: "normal" });
+  });
+
+  it("fails the run with the verify error when complete_ticket_delivery cannot publish", async () => {
+    const workspaceRoot = await mkdtemp(
+      join(tmpdir(), "agent-runner-workspace-"),
+    );
+    tempDirs.push(workspaceRoot);
+    const appServerDir = await mkdtemp(join(tmpdir(), "agent-runner-server-"));
+    tempDirs.push(appServerDir);
+    const promptLogPath = join(appServerDir, "prompts.log");
+    const scriptPath = join(appServerDir, "fake-app-server.mjs");
+
+    await writeFile(
+      scriptPath,
+      `
+import readline from "node:readline";
+
+const rl = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });
+
+function send(message) {
+  process.stdout.write(JSON.stringify(message) + "\\n");
+}
+
+rl.on("line", (line) => {
+  const msg = JSON.parse(line);
+  if (msg.method === "initialize") {
+    send({ id: msg.id, result: { ok: true } });
+    return;
+  }
+  if (msg.method === "thread/start") {
+    send({ id: msg.id, result: { thread: { id: "thread-1" } } });
+    return;
+  }
+  if (msg.method === "turn/start") {
+    send({ id: msg.id, result: { turn: { id: "turn-1" } } });
+    send({
+      id: "tool-delivery-1",
+      method: "item/tool/call",
+      params: {
+        tool: "complete_ticket_delivery",
+        callId: "call-delivery-1",
+        threadId: "thread-1",
+        turnId: "turn-1",
+        arguments: {
+          summary: "Added the requested files.",
+          targeted_checks: ["Verified the files exist."]
+        }
+      }
+    });
+    send({ method: "turn/completed", params: {} });
+  }
+});
+`,
+      "utf8",
+    );
+
+    const commandRunner = vi
+      .fn()
+      .mockResolvedValueOnce({
+        stdout: "terosuhonen/own-28-add-new-files\n",
+        stderr: "",
+        exitCode: 0,
+      })
+      .mockResolvedValueOnce({
+        stdout: "A  testing_0.txt\nA  testing_1.txt\nA  testing_2.txt\n",
+        stderr: "",
+        exitCode: 0,
+      })
+      .mockResolvedValueOnce({
+        stdout: "",
+        stderr: "listen EPERM 127.0.0.1",
+        exitCode: 1,
+      });
+
+    const runner = new AgentRunner({
+      workflowDefinition: validWorkflowDefinition(
+        workspaceRoot,
+        `${process.execPath} ${scriptPath}`,
+        promptLogPath,
+      ),
+      issueStateRefresher: vi.fn().mockResolvedValue([]),
+      deliveryCommandRunner: commandRunner,
+      templateReadFile: vi
+        .fn()
+        .mockResolvedValue(`Linear Issue: <!-- OWN-123 -->`),
+      linearFetchFn: mockLinearCommentFetch(),
+    });
+
+    await expect(
+      runner.runAttempt({
+        issue: makeIssue({
+          id: "issue-1",
+          identifier: "OWN-28",
+          title: "Add new files",
+          branchName: "terosuhonen/own-28-add-new-files",
+          url: "https://linear.app/demo/issue/OWN-28",
+          state: "In Progress",
+        }),
+        attempt: null,
+      }),
+    ).rejects.toThrow(
+      "./scripts/verify failed with exit code 1. listen EPERM 127.0.0.1",
+    );
   });
 });
 

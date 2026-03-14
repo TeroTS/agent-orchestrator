@@ -50,6 +50,12 @@ describe("repository WORKFLOW.md", () => {
     expect(definition.promptTemplate).toContain(
       "call `complete_ticket_delivery` exactly once",
     );
+    expect(definition.promptTemplate).toContain(
+      "it runs `./scripts/verify` before publishing",
+    );
+    expect(definition.promptTemplate).toContain(
+      "targeted validation checks you ran beyond `./scripts/verify`",
+    );
     expect(definition.promptTemplate).not.toContain(
       'gh pr list --head "$branch" --state open --json number,url',
     );

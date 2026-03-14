@@ -108,9 +108,9 @@ Execution rules:
 - Do not use `issue(identifier: ...)`.
 - `issue(id: ...)` is only for a known Linear issue id / UUID, not for identifier-based lookup.
 
-13. When the implementation work is complete and validation passes, call `complete_ticket_delivery` exactly once with a concise summary of what changed and the validation you ran.
+13. When the implementation work is complete and validation passes, call `complete_ticket_delivery` exactly once with a concise summary of what changed and the targeted validation checks you ran beyond `./scripts/verify`.
 14. Do not call `linear_add_issue_comment` directly for normal ticket completion.
-15. `complete_ticket_delivery` is the required completion path because it commits the workspace changes when needed, pushes the ticket branch, creates or updates the GitHub pull request, and posts the final Linear completion comment with the PR URL.
+15. `complete_ticket_delivery` is the required completion path because it runs `./scripts/verify` before publishing, commits the workspace changes when needed, pushes the ticket branch, creates or updates the GitHub pull request, and posts the final Linear completion comment with the PR URL.
 16. If `complete_ticket_delivery` fails, stop and report the exact error instead of improvising with manual GitHub or Linear commands.
 17. Call `complete_ticket_delivery` before your final output.
 18. Final output must summarize completed work, validation run, and any remaining blocker.
