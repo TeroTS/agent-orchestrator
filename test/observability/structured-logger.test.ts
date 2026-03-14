@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { createStructuredLogger } from "../../src/observability/structured-logger.js";
+import {
+  createStructuredLogger,
+  resolveStructuredLogLevel,
+} from "../../src/observability/structured-logger.js";
 
 describe("createStructuredLogger", () => {
   it("formats stable key=value logs with issue and session context", () => {
@@ -43,5 +46,31 @@ describe("createStructuredLogger", () => {
     expect(fallbackLines).toHaveLength(1);
     expect(fallbackLines[0]).toContain('msg="log sink failure"');
     expect(fallbackLines[0]).toContain('reason="sink exploded"');
+  });
+
+  it("honors the configured minimum log level", () => {
+    const lines: string[] = [];
+    const logger = createStructuredLogger({
+      level: "warn",
+      write: (line) => lines.push(line),
+    });
+
+    logger.debug("debug message");
+    logger.info("info message");
+    logger.warn("warn message");
+    logger.error("error message");
+
+    expect(lines).toHaveLength(2);
+    expect(lines[0]).toContain("level=warn");
+    expect(lines[1]).toContain("level=error");
+  });
+});
+
+describe("resolveStructuredLogLevel", () => {
+  it("normalizes valid values and falls back to info", () => {
+    expect(resolveStructuredLogLevel("DEBUG")).toBe("debug");
+    expect(resolveStructuredLogLevel(" warn ")).toBe("warn");
+    expect(resolveStructuredLogLevel("invalid")).toBe("info");
+    expect(resolveStructuredLogLevel(undefined)).toBe("info");
   });
 });

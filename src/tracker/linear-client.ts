@@ -1,3 +1,8 @@
+import {
+  createStructuredLogger,
+  type StructuredLogger,
+} from "../observability/structured-logger.js";
+
 export interface LinearBlockerRef {
   id: string | null;
   identifier: string | null;
@@ -30,6 +35,7 @@ export interface LinearTrackerClientOptions {
   apiKey: string;
   projectSlug: string;
   fetchFn?: typeof fetch;
+  logger?: StructuredLogger;
   pageSize?: number;
   timeoutMs?: number;
 }
@@ -46,12 +52,14 @@ export class TrackerError extends Error {
 
 const DEFAULT_PAGE_SIZE = 50;
 const DEFAULT_TIMEOUT_MS = 30000;
+const MAX_LOG_PREVIEW_LENGTH = 1000;
 
 export class LinearTrackerClient {
   private readonly endpoint: string;
   private readonly apiKey: string;
   private readonly projectSlug: string;
   private readonly fetchFn: typeof fetch;
+  private readonly logger: StructuredLogger;
   private readonly pageSize: number;
   private readonly timeoutMs: number;
 
@@ -60,6 +68,7 @@ export class LinearTrackerClient {
     this.apiKey = options.apiKey;
     this.projectSlug = options.projectSlug;
     this.fetchFn = options.fetchFn ?? fetch;
+    this.logger = options.logger ?? createStructuredLogger();
     this.pageSize = options.pageSize ?? DEFAULT_PAGE_SIZE;
     this.timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   }
@@ -245,6 +254,15 @@ export class LinearTrackerClient {
   }): Promise<GraphQLResponse<T>> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+    const startedAt = Date.now();
+    const operationName = extractOperationName(body.query);
+
+    this.logger.debug("linear api request", {
+      endpoint: this.endpoint,
+      operation_name: operationName,
+      graphql_query: body.query,
+      graphql_variables: body.variables,
+    });
 
     try {
       const response = await this.fetchFn(this.endpoint, {
@@ -256,28 +274,84 @@ export class LinearTrackerClient {
         body: JSON.stringify(body),
         signal: controller.signal,
       });
+      const responseText = await response.text();
+      const durationMs = Date.now() - startedAt;
 
       if (!response.ok) {
+        this.logger.debug("linear api request failed", {
+          duration_ms: durationMs,
+          endpoint: this.endpoint,
+          error_code: "linear_api_status",
+          error_message: `Linear responded with HTTP ${response.status}.`,
+          operation_name: operationName,
+          response_preview: previewForLog(responseText),
+          status: response.status,
+        });
         throw new TrackerError(
           "linear_api_status",
           `Linear responded with HTTP ${response.status}.`,
         );
       }
 
-      const payload = (await response.json()) as GraphQLResponse<T>;
+      let payload: GraphQLResponse<T>;
+      try {
+        payload = (
+          responseText ? JSON.parse(responseText) : {}
+        ) as GraphQLResponse<T>;
+      } catch {
+        this.logger.debug("linear api request failed", {
+          duration_ms: durationMs,
+          endpoint: this.endpoint,
+          error_code: "linear_graphql_invalid_json_response",
+          error_message: "Linear returned a non-JSON response body.",
+          operation_name: operationName,
+          response_preview: previewForLog(responseText),
+          status: response.status,
+        });
+        throw new TrackerError(
+          "linear_graphql_invalid_json_response",
+          "Linear returned a non-JSON response body.",
+        );
+      }
 
       if (Array.isArray(payload.errors) && payload.errors.length > 0) {
+        this.logger.debug("linear api request failed", {
+          duration_ms: durationMs,
+          endpoint: this.endpoint,
+          error_code: "linear_graphql_errors",
+          error_message: "Linear returned GraphQL errors.",
+          graphql_errors: payload.errors,
+          operation_name: operationName,
+          response_preview: previewForLog(responseText),
+          status: response.status,
+        });
         throw new TrackerError(
           "linear_graphql_errors",
           "Linear returned GraphQL errors.",
         );
       }
 
+      this.logger.debug("linear api request succeeded", {
+        duration_ms: durationMs,
+        endpoint: this.endpoint,
+        operation_name: operationName,
+        response_preview: previewForLog(responseText),
+        status: response.status,
+      });
+
       return payload;
     } catch (error) {
       if (error instanceof TrackerError) {
         throw error;
       }
+
+      this.logger.debug("linear api request failed", {
+        duration_ms: Date.now() - startedAt,
+        endpoint: this.endpoint,
+        error_code: "linear_api_request",
+        error_message: error instanceof Error ? error.message : String(error),
+        operation_name: operationName,
+      });
 
       throw new TrackerError("linear_api_request", "Linear request failed.", {
         cause: error,
@@ -291,6 +365,24 @@ export class LinearTrackerClient {
 interface GraphQLResponse<T> {
   data?: T;
   errors?: Array<{ message?: string }>;
+}
+
+function extractOperationName(query: string): string | null {
+  const match = /^\s*(query|mutation)\s+([_A-Za-z][_0-9A-Za-z]*)/m.exec(query);
+  return match?.[2] ?? null;
+}
+
+function previewForLog(value: string): string | null {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  if (trimmed.length <= MAX_LOG_PREVIEW_LENGTH) {
+    return trimmed;
+  }
+
+  return `${trimmed.slice(0, MAX_LOG_PREVIEW_LENGTH)}...(truncated)`;
 }
 
 interface LinearCandidateIssuesPayload {

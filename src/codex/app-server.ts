@@ -569,6 +569,7 @@ export class CodexAppServerClient {
     const result = await executeLinearGraphqlToolCall(
       message.params?.arguments,
       toolConfig,
+      this.logger,
     );
     this.send({
       id: message.id,
@@ -609,6 +610,7 @@ export class CodexAppServerClient {
     const result = await executeLinearAddIssueCommentToolCall(
       message.params?.arguments,
       toolConfig,
+      this.logger,
     );
     this.send({
       id: message.id,
@@ -1006,6 +1008,7 @@ function buildLinearDynamicToolSpecs(): Array<{
 async function executeLinearGraphqlToolCall(
   input: unknown,
   config: NonNullable<CodexAppServerClientOptions["linearGraphql"]>,
+  logger: StructuredLogger,
 ): Promise<Record<string, unknown>> {
   const parsed = parseLinearGraphqlArguments(input);
   if (!parsed.ok) {
@@ -1020,6 +1023,15 @@ async function executeLinearGraphqlToolCall(
   }
 
   const fetchFn = config.fetchFn ?? fetch;
+  const operationName = extractGraphqlOperationName(parsed.query);
+  const startedAt = Date.now();
+
+  logger.debug("linear graphql request", {
+    endpoint: config.endpoint,
+    graphql_query: parsed.query,
+    graphql_variables: parsed.variables,
+    operation_name: operationName,
+  });
 
   try {
     const response = await fetchFn(config.endpoint, {
@@ -1034,8 +1046,18 @@ async function executeLinearGraphqlToolCall(
       }),
     });
     const responseText = await response.text();
+    const durationMs = Date.now() - startedAt;
 
     if (!response.ok) {
+      logger.debug("linear graphql request failed", {
+        duration_ms: durationMs,
+        endpoint: config.endpoint,
+        error_code: "linear_api_status",
+        error_message: `Linear responded with HTTP ${response.status}.`,
+        operation_name: operationName,
+        response_preview: previewGraphqlLogValue(responseText),
+        status: response.status,
+      });
       return errorResult(
         "linear_api_status",
         `Linear responded with HTTP ${response.status}.`,
@@ -1050,6 +1072,15 @@ async function executeLinearGraphqlToolCall(
     try {
       body = responseText ? JSON.parse(responseText) : null;
     } catch {
+      logger.debug("linear graphql request failed", {
+        duration_ms: durationMs,
+        endpoint: config.endpoint,
+        error_code: "linear_graphql_invalid_json_response",
+        error_message: "Linear returned a non-JSON response body.",
+        operation_name: operationName,
+        response_preview: previewGraphqlLogValue(responseText),
+        status: response.status,
+      });
       return errorResult(
         "linear_graphql_invalid_json_response",
         "Linear returned a non-JSON response body.",
@@ -1057,6 +1088,15 @@ async function executeLinearGraphqlToolCall(
     }
 
     if (!isPlainObject(body)) {
+      logger.debug("linear graphql request failed", {
+        duration_ms: durationMs,
+        endpoint: config.endpoint,
+        error_code: "linear_graphql_invalid_response",
+        error_message: "Linear returned a malformed GraphQL response.",
+        operation_name: operationName,
+        response_preview: previewGraphqlLogValue(responseText),
+        status: response.status,
+      });
       return errorResult(
         "linear_graphql_invalid_response",
         "Linear returned a malformed GraphQL response.",
@@ -1064,6 +1104,16 @@ async function executeLinearGraphqlToolCall(
     }
 
     if (Array.isArray(body?.errors) && body.errors.length > 0) {
+      logger.debug("linear graphql request failed", {
+        duration_ms: durationMs,
+        endpoint: config.endpoint,
+        error_code: "linear_graphql_errors",
+        error_message: "Linear returned GraphQL errors.",
+        graphql_errors: body.errors,
+        operation_name: operationName,
+        response_preview: previewGraphqlLogValue(responseText),
+        status: response.status,
+      });
       return {
         success: false,
         error: {
@@ -1074,11 +1124,26 @@ async function executeLinearGraphqlToolCall(
       };
     }
 
+    logger.debug("linear graphql request succeeded", {
+      duration_ms: durationMs,
+      endpoint: config.endpoint,
+      operation_name: operationName,
+      response_preview: previewGraphqlLogValue(responseText),
+      status: response.status,
+    });
+
     return {
       success: true,
       body,
     };
   } catch (error) {
+    logger.debug("linear graphql request failed", {
+      duration_ms: Date.now() - startedAt,
+      endpoint: config.endpoint,
+      error_code: "linear_api_request",
+      error_message: error instanceof Error ? error.message : String(error),
+      operation_name: operationName,
+    });
     return errorResult(
       "linear_api_request",
       error instanceof Error ? error.message : String(error),
@@ -1089,6 +1154,7 @@ async function executeLinearGraphqlToolCall(
 async function executeLinearAddIssueCommentToolCall(
   input: unknown,
   config: NonNullable<CodexAppServerClientOptions["linearGraphql"]>,
+  logger: StructuredLogger,
 ): Promise<
   | { success: true; comment: LinearComment }
   | {
@@ -1122,6 +1188,7 @@ async function executeLinearAddIssueCommentToolCall(
     const client = new LinearTrackerClient({
       endpoint: config.endpoint,
       apiKey: config.apiKey,
+      logger,
       projectSlug: config.projectSlug ?? "",
       ...(config.fetchFn ? { fetchFn: config.fetchFn } : {}),
     });
@@ -1242,6 +1309,26 @@ function parseLinearGraphqlArguments(input: unknown):
     query,
     variables: (variables as Record<string, unknown> | undefined) ?? {},
   };
+}
+
+const MAX_GRAPHQL_LOG_PREVIEW_LENGTH = 1000;
+
+function extractGraphqlOperationName(query: string): string | null {
+  const match = /^\s*(query|mutation)\s+([_A-Za-z][_0-9A-Za-z]*)/m.exec(query);
+  return match?.[2] ?? null;
+}
+
+function previewGraphqlLogValue(value: string): string | null {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  if (trimmed.length <= MAX_GRAPHQL_LOG_PREVIEW_LENGTH) {
+    return trimmed;
+  }
+
+  return `${trimmed.slice(0, MAX_GRAPHQL_LOG_PREVIEW_LENGTH)}...(truncated)`;
 }
 
 function parseLinearAddIssueCommentArguments(input: unknown):

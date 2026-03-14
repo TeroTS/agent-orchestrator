@@ -4,6 +4,7 @@ import {
   LinearTrackerClient,
   type LinearIssue,
 } from "../../src/tracker/linear-client.js";
+import { createStructuredLogger } from "../../src/observability/structured-logger.js";
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -430,6 +431,117 @@ describe("LinearTrackerClient", () => {
     await expect(client.fetchCandidateIssues(["Todo"])).rejects.toMatchObject({
       code: "linear_missing_end_cursor",
     });
+  });
+
+  it("emits debug request and response logs for successful api calls", async () => {
+    const lines: string[] = [];
+    const client = new LinearTrackerClient({
+      endpoint: "https://api.linear.app/graphql",
+      apiKey: "linear-token",
+      projectSlug: "demo-project",
+      fetchFn: vi.fn().mockResolvedValue(
+        jsonResponse({
+          data: {
+            issues: {
+              nodes: [],
+            },
+          },
+        }),
+      ),
+      logger: createStructuredLogger({
+        level: "debug",
+        write: (line) => lines.push(line),
+      }),
+    });
+
+    await client.fetchIssueStatesByIds(["issue-1"]);
+
+    expect(
+      lines.some((line) => line.includes('msg="linear api request"')),
+    ).toBe(true);
+    expect(
+      lines.some((line) => line.includes('msg="linear api request succeeded"')),
+    ).toBe(true);
+    expect(lines.join("\n")).toContain("graphql_query=");
+    expect(lines.join("\n")).toContain("graphql_variables=");
+    expect(lines.join("\n")).toContain("status=200");
+    expect(lines.join("\n")).not.toContain("linear-token");
+  });
+
+  it("emits bounded debug failure logs for http and graphql errors", async () => {
+    const lines: string[] = [];
+    const logger = createStructuredLogger({
+      level: "debug",
+      write: (line) => lines.push(line),
+    });
+
+    const statusClient = new LinearTrackerClient({
+      endpoint: "https://api.linear.app/graphql",
+      apiKey: "linear-token",
+      projectSlug: "demo-project",
+      fetchFn: vi
+        .fn()
+        .mockResolvedValue(new Response("x".repeat(1200), { status: 502 })),
+      logger,
+    });
+
+    await expect(
+      statusClient.fetchCandidateIssues(["Todo"]),
+    ).rejects.toMatchObject({
+      code: "linear_api_status",
+    });
+
+    const graphqlClient = new LinearTrackerClient({
+      endpoint: "https://api.linear.app/graphql",
+      apiKey: "linear-token",
+      projectSlug: "demo-project",
+      fetchFn: vi
+        .fn()
+        .mockResolvedValue(jsonResponse({ errors: [{ message: "broken" }] })),
+      logger,
+    });
+
+    await expect(
+      graphqlClient.fetchCandidateIssues(["Todo"]),
+    ).rejects.toMatchObject({
+      code: "linear_graphql_errors",
+    });
+
+    const output = lines.join("\n");
+    expect(output).toContain('msg="linear api request failed"');
+    expect(output).toContain("error_code=linear_api_status");
+    expect(output).toContain("error_code=linear_graphql_errors");
+    expect(output).toContain("status=502");
+    expect(output).toContain("response_preview=");
+    expect(output).toContain("...(truncated)");
+    expect(output).toContain("graphql_errors=");
+    expect(output).not.toContain("linear-token");
+  });
+
+  it("suppresses debug request logs above the info threshold", async () => {
+    const lines: string[] = [];
+    const client = new LinearTrackerClient({
+      endpoint: "https://api.linear.app/graphql",
+      apiKey: "linear-token",
+      projectSlug: "demo-project",
+      fetchFn: vi.fn().mockResolvedValue(
+        jsonResponse({
+          data: {
+            issues: {
+              nodes: [],
+            },
+          },
+        }),
+      ),
+      logger: createStructuredLogger({
+        level: "info",
+        write: (line) => lines.push(line),
+      }),
+    });
+
+    await client.fetchIssueStatesByIds(["issue-1"]);
+
+    expect(lines).toEqual([]);
   });
 });
 

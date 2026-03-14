@@ -21,8 +21,22 @@ describe("repository WORKFLOW.md", () => {
 
     expect(validation.ok).toBe(true);
     expect(definition.promptTemplate).not.toContain("cd elixir");
+    expect(definition.promptTemplate).toContain("{{ issue.id }}");
     expect(definition.promptTemplate).toContain("{{ issue.identifier }}");
     expect(definition.promptTemplate).toContain("linear_add_issue_comment");
+    expect(definition.promptTemplate).toContain(
+      "issues(filter: { identifier: { eq: $identifier } })",
+    );
+    expect(definition.promptTemplate).toContain(
+      "Use that provided id for `linear_add_issue_comment`",
+    );
+    expect(definition.promptTemplate).toContain(
+      "Do not use `linear_graphql` just to look up the current issue id",
+    );
+    expect(definition.promptTemplate).toContain("Do not use `issueV2(...)`");
+    expect(definition.promptTemplate).toContain(
+      "Do not use `issue(identifier: ...)`",
+    );
     expect(definition.promptTemplate).toContain(
       "Do not use `linear_graphql` to post the completion comment",
     );

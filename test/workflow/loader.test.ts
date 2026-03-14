@@ -188,17 +188,19 @@ describe("renderPromptTemplate", () => {
     const rendered = await renderPromptTemplate(
       {
         config: {},
-        promptTemplate: "Issue {{ issue.identifier }} attempt {{ attempt }}",
+        promptTemplate:
+          "Issue {{ issue.id }} {{ issue.identifier }} attempt {{ attempt }}",
       },
       {
         issue: {
+          id: "issue-123",
           identifier: "ABC-123",
         },
         attempt: 2,
       },
     );
 
-    expect(rendered).toBe("Issue ABC-123 attempt 2");
+    expect(rendered).toBe("Issue issue-123 ABC-123 attempt 2");
   });
 
   it("fails on unknown variables", async () => {

@@ -864,4 +864,99 @@ describe("CodexAppServerClient", () => {
       );
     }
   });
+
+  it("emits debug request logs for linear_graphql tool success and failure", async () => {
+    const logger = {
+      debug: vi.fn(),
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+    };
+
+    const success = await createScenarioDir(
+      "codex-linear-debug-success",
+      "linear-graphql",
+    );
+    const successClient = new CodexAppServerClient({
+      command: `${process.execPath} ${success.scriptPath}`,
+      workspacePath: success.dir,
+      approvalPolicy: "never",
+      threadSandbox: "workspace-write",
+      turnSandboxPolicy: { type: "workspaceWrite" },
+      readTimeoutMs: 500,
+      turnTimeoutMs: 1000,
+      logger,
+      linearGraphql: {
+        endpoint: "https://api.linear.app/graphql",
+        apiKey: "linear-token",
+        fetchFn: vi.fn().mockResolvedValue(
+          new Response(JSON.stringify({ data: { viewer: { id: "user-1" } } }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          }),
+        ),
+      },
+    });
+
+    await successClient.start();
+    await successClient.runTurn({
+      prompt: "Hello",
+      title: "ABC-9: Example",
+    });
+    await successClient.stop();
+
+    expect(logger.debug).toHaveBeenCalledWith(
+      "linear graphql request",
+      expect.objectContaining({
+        endpoint: "https://api.linear.app/graphql",
+        graphql_query: "query Viewer { viewer { id } }",
+        graphql_variables: {},
+        operation_name: "Viewer",
+      }),
+    );
+    expect(logger.debug).toHaveBeenCalledWith(
+      "linear graphql request succeeded",
+      expect.objectContaining({
+        status: 200,
+      }),
+    );
+
+    const failure = await createScenarioDir(
+      "codex-linear-debug-failure",
+      "linear-graphql-status-error",
+    );
+    const failureClient = new CodexAppServerClient({
+      command: `${process.execPath} ${failure.scriptPath}`,
+      workspacePath: failure.dir,
+      approvalPolicy: "never",
+      threadSandbox: "workspace-write",
+      turnSandboxPolicy: { type: "workspaceWrite" },
+      readTimeoutMs: 500,
+      turnTimeoutMs: 1000,
+      logger,
+      linearGraphql: {
+        endpoint: "https://api.linear.app/graphql",
+        apiKey: "linear-token",
+        fetchFn: vi
+          .fn()
+          .mockResolvedValue(new Response("bad gateway", { status: 502 })),
+      },
+    });
+
+    await failureClient.start();
+    await failureClient.runTurn({
+      prompt: "Hello",
+      title: "ABC-10: Example",
+    });
+    await failureClient.stop();
+
+    expect(logger.debug).toHaveBeenCalledWith(
+      "linear graphql request failed",
+      expect.objectContaining({
+        error_code: "linear_api_status",
+        response_preview: "bad gateway",
+        status: 502,
+      }),
+    );
+  });
 });

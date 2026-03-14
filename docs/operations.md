@@ -21,6 +21,10 @@ Use environment indirection for secrets such as `LINEAR_API_KEY`.
 ## Logging and Monitoring
 
 - Structured logs are emitted to stdout/stderr from the service process.
+- `SYMPHONY_LOG_LEVEL=debug` enables debug-only Linear request logs for both the
+  orchestration-side tracker client and Codex `linear_graphql` tool calls.
+  Those logs include GraphQL query text, variables, status, duration, and a
+  bounded response preview.
 - The optional HTTP surface provides `/`, `/api/v1/state`, `/api/v1/issues`,
   `/api/v1/running`, `/api/v1/retries`, `/api/v1/completed`, `/api/v1/health`,
   `/api/v1/ready`, `/api/v1/refresh`, and `/api/v1/reconcile`.
@@ -43,6 +47,8 @@ Use environment indirection for secrets such as `LINEAR_API_KEY`.
 3. Are tracker credentials present and accepted?
 4. Is `codex` installed and runnable from the repo shell?
 5. Does `/api/v1/state` show the expected running or retrying issue?
+6. If Linear behavior is unclear, rerun with `SYMPHONY_LOG_LEVEL=debug` and
+   inspect the emitted request/response previews.
 
 ## Known Limitation
 

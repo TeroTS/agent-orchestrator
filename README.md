@@ -51,6 +51,12 @@ Set required environment variables:
 export LINEAR_API_KEY=your-linear-api-key
 ```
 
+Optional for tracker and Codex-side Linear request debugging:
+
+```bash
+export SYMPHONY_LOG_LEVEL=debug
+```
+
 Build and run:
 
 ```bash
@@ -104,7 +110,9 @@ The shipped default file is intentionally generic and safe:
 - no Elixir- or repo-specific bootstrap hooks are included
 
 The prompt template supports strict Liquid rendering with `issue` and `attempt`
-variables.
+variables. The shipped workflow exposes the current Linear `issue.id` directly
+in the prompt as `Issue ID` so Codex can call `linear_add_issue_comment`
+without first looking the issue up via `linear_graphql`.
 
 ## Status server
 
@@ -136,6 +144,11 @@ high-signal Codex milestones such as turn start/completion, command execution,
 tool calls, retries, and final agent messages. Low-value streaming deltas and
 token-count chatter are intentionally suppressed from this operator-facing log
 stream.
+
+When you need full Linear request diagnostics, start the service with
+`SYMPHONY_LOG_LEVEL=debug`. In debug mode the real Linear tracker client and the
+Codex `linear_graphql` tool log GraphQL query text, variables, status,
+duration, and bounded response previews. Authorization values are not logged.
 
 ## Testing
 

@@ -24,6 +24,13 @@ Use the repository-owned workflow:
 npm start
 ```
 
+Enable debug-level Linear request logging when investigating tracker or
+`linear_graphql` failures:
+
+```bash
+SYMPHONY_LOG_LEVEL=debug npm start
+```
+
 Run with an explicit workflow file:
 
 ```bash
@@ -53,6 +60,9 @@ npm test -- test/orchestrator/orchestrator.test.ts
 
 - If startup fails immediately, check that `WORKFLOW.md` exists and validates.
 - If tracker calls fail, verify `LINEAR_API_KEY` and `tracker.project_slug`.
+- If Linear requests need deeper inspection, rerun with
+  `SYMPHONY_LOG_LEVEL=debug` to log query text, variables, HTTP status, and a
+  bounded response preview.
 - If worker startup fails, verify `codex` is installed and callable from `PATH`.
 - If the status server does not start, check for port conflicts or invalid
   `server.port` overrides.

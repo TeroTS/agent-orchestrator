@@ -47,6 +47,7 @@ Continuation context:
   {% endif %}
 
 Issue context:
+Issue ID: {{ issue.id }}
 Identifier: {{ issue.identifier }}
 Title: {{ issue.title }}
 Current status: {{ issue.state }}
@@ -67,7 +68,16 @@ Execution rules:
 3. Reproduce the issue or confirm the requested change before implementing when practical.
 4. Prefer targeted validation that proves the changed behavior directly.
 5. If Linear access is available, use `linear_graphql` only when the task needs tracker context or other Linear operations that are not covered by a dedicated tool.
-6. When the implementation work is complete and validation passes, call `linear_add_issue_comment` exactly once with the current issue id and a 2-4 sentence plain-text summary of what changed and how you validated it.
-7. Do not use `linear_graphql` to post the completion comment unless `linear_add_issue_comment` is unavailable or clearly failing.
-8. Post the Linear completion comment before your final output.
-9. Final output must summarize completed work, validation run, and any remaining blocker.
+6. Linear lookup rules:
+   - The current Linear issue id is already provided in this prompt as `Issue ID`. Use that provided id for `linear_add_issue_comment`.
+   - Do not use `linear_graphql` just to look up the current issue id for the completion comment.
+   - To fetch a Linear issue by ticket identifier such as `OWN-15`, query the `issues` connection with an identifier filter, for example:
+     `query IssueByIdentifier($identifier: String!) { issues(filter: { identifier: { eq: $identifier } }) { nodes { id identifier title } } }`
+   - Use the returned issue `id` for follow-up operations.
+   - Do not use `issueV2(...)`.
+   - Do not use `issue(identifier: ...)`.
+   - `issue(id: ...)` is only for a known Linear issue id / UUID, not for identifier-based lookup.
+7. When the implementation work is complete and validation passes, call `linear_add_issue_comment` exactly once with the provided `Issue ID` and a 2-4 sentence plain-text summary of what changed and how you validated it.
+8. Do not use `linear_graphql` to post the completion comment unless `linear_add_issue_comment` is unavailable or clearly failing.
+9. Post the Linear completion comment before your final output.
+10. Final output must summarize completed work, validation run, and any remaining blocker.

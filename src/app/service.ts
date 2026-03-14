@@ -12,6 +12,7 @@ import {
 } from "../observability/status-server.js";
 import {
   createStructuredLogger,
+  resolveStructuredLogLevel,
   type StructuredLogger,
 } from "../observability/structured-logger.js";
 import { LinearTrackerClient } from "../tracker/linear-client.js";
@@ -55,7 +56,11 @@ export async function createService(input: {
   startStatusServerFn?: typeof startStatusServer;
   logger?: StructuredLogger;
 }): Promise<SymphonyService> {
-  const logger = input.logger ?? createStructuredLogger();
+  const logger =
+    input.logger ??
+    createStructuredLogger({
+      level: resolveStructuredLogLevel(process.env.SYMPHONY_LOG_LEVEL),
+    });
   const workflowStore =
     input.workflowStore ??
     new WorkflowStore({
@@ -68,19 +73,19 @@ export async function createService(input: {
 
   const trackerFacade: TrackerFacade = input.tracker ?? {
     fetchCandidateIssues: async (activeStates: string[]) => {
-      const client = createTrackerClient(workflowStore.current());
+      const client = createTrackerClient(workflowStore.current(), logger);
       return client.fetchCandidateIssues(activeStates);
     },
     fetchIssuesByStates: async (states: string[]) => {
-      const client = createTrackerClient(workflowStore.current());
+      const client = createTrackerClient(workflowStore.current(), logger);
       return client.fetchIssuesByStates(states);
     },
     fetchIssueStatesByIds: async (issueIds: string[]) => {
-      const client = createTrackerClient(workflowStore.current());
+      const client = createTrackerClient(workflowStore.current(), logger);
       return client.fetchIssueStatesByIds(issueIds);
     },
     transitionIssueToState: async (issueId: string, stateName: string) => {
-      const client = createTrackerClient(workflowStore.current());
+      const client = createTrackerClient(workflowStore.current(), logger);
       return client.transitionIssueToState(issueId, stateName);
     },
   };
@@ -189,12 +194,14 @@ export async function createService(input: {
 
 function createTrackerClient(
   definition: WorkflowDefinition,
+  logger: StructuredLogger,
 ): LinearTrackerClient {
   const config = requireValidConfig(definition);
   return new LinearTrackerClient({
     endpoint: config.tracker.endpoint,
     apiKey: config.tracker.apiKey,
     projectSlug: config.tracker.projectSlug,
+    logger,
   });
 }
 

@@ -5,7 +5,31 @@ export interface StructuredLogger {
   error(message: string, fields?: Record<string, unknown>): void;
 }
 
+export type StructuredLogLevel = "debug" | "info" | "warn" | "error";
+
+const LOG_LEVEL_ORDER: Record<StructuredLogLevel, number> = {
+  debug: 10,
+  info: 20,
+  warn: 30,
+  error: 40,
+};
+
+export function resolveStructuredLogLevel(
+  value: string | null | undefined,
+): StructuredLogLevel {
+  switch (value?.trim().toLowerCase()) {
+    case "debug":
+    case "info":
+    case "warn":
+    case "error":
+      return value.trim().toLowerCase() as StructuredLogLevel;
+    default:
+      return "info";
+  }
+}
+
 export function createStructuredLogger(options?: {
+  level?: StructuredLogLevel;
   write?: (line: string) => void;
   fallbackWrite?: (line: string) => void;
 }): StructuredLogger {
@@ -14,6 +38,7 @@ export function createStructuredLogger(options?: {
   const fallbackWrite =
     options?.fallbackWrite ??
     ((line: string) => process.stderr.write(`${line}\n`));
+  const minLevel = options?.level ?? "info";
 
   const safeWrite = (line: string) => {
     try {
@@ -32,11 +57,30 @@ export function createStructuredLogger(options?: {
     }
   };
 
+  const shouldLog = (level: StructuredLogLevel): boolean =>
+    LOG_LEVEL_ORDER[level] >= LOG_LEVEL_ORDER[minLevel];
+
   return {
-    debug: (message, fields) => safeWrite(formatLine("debug", message, fields)),
-    info: (message, fields) => safeWrite(formatLine("info", message, fields)),
-    warn: (message, fields) => safeWrite(formatLine("warn", message, fields)),
-    error: (message, fields) => safeWrite(formatLine("error", message, fields)),
+    debug: (message, fields) => {
+      if (shouldLog("debug")) {
+        safeWrite(formatLine("debug", message, fields));
+      }
+    },
+    info: (message, fields) => {
+      if (shouldLog("info")) {
+        safeWrite(formatLine("info", message, fields));
+      }
+    },
+    warn: (message, fields) => {
+      if (shouldLog("warn")) {
+        safeWrite(formatLine("warn", message, fields));
+      }
+    },
+    error: (message, fields) => {
+      if (shouldLog("error")) {
+        safeWrite(formatLine("error", message, fields));
+      }
+    },
   };
 }
 
