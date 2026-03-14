@@ -43,7 +43,7 @@ export class WorkspaceError extends Error {
 }
 
 const DEFAULT_HOOK_TIMEOUT_MS = 60000;
-const TEMPORARY_ARTIFACTS = ["tmp", ".elixir_ls"];
+const TEMPORARY_ARTIFACTS = ["tmp", ".cache"];
 
 export function sanitizeWorkspaceKey(issueIdentifier: string): string {
   return issueIdentifier.replace(/[^A-Za-z0-9._-]/g, "_");

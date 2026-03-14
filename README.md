@@ -24,7 +24,7 @@ Known limitation:
 
 ## Requirements
 
-- Node.js 20+ recommended
+- Node.js 24 LTS recommended
 - `npm`
 - `codex` CLI available in `PATH` for real runs
 - Linear API access via `LINEAR_API_KEY`
@@ -112,7 +112,10 @@ The shipped default file is intentionally generic and safe:
 The prompt template supports strict Liquid rendering with `issue` and `attempt`
 variables. The shipped workflow exposes the current Linear `issue.id` directly
 in the prompt as `Issue ID` so Codex can call `linear_add_issue_comment`
-without first looking the issue up via `linear_graphql`.
+without first looking the issue up via `linear_graphql`. The shipped workflow
+also treats branch + PR as the normal delivery path: the agent is expected to
+work on an issue branch, open or update a GitHub PR, and include that PR URL in
+the final Linear completion comment before the run can hand off successfully.
 
 ## Status server
 

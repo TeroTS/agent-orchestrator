@@ -98,7 +98,7 @@ describe("prepareWorkspaceForRun", () => {
     });
 
     await mkdir(join(workspace.path, "tmp"));
-    await mkdir(join(workspace.path, ".elixir_ls"));
+    await mkdir(join(workspace.path, ".cache"));
 
     await prepareWorkspaceForRun({
       workspacePath: workspace.path,
@@ -108,9 +108,7 @@ describe("prepareWorkspaceForRun", () => {
     });
 
     await expect(stat(join(workspace.path, "tmp"))).rejects.toBeDefined();
-    await expect(
-      stat(join(workspace.path, ".elixir_ls")),
-    ).rejects.toBeDefined();
+    await expect(stat(join(workspace.path, ".cache"))).rejects.toBeDefined();
     await expect(
       readFile(join(workspace.path, ".before-run"), "utf8"),
     ).resolves.toBe("ready");

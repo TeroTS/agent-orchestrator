@@ -48,6 +48,7 @@ Continuation context:
 
 Issue context:
 Issue ID: {{ issue.id }}
+Branch Name: {{ issue.branchName }}
 Identifier: {{ issue.identifier }}
 Title: {{ issue.title }}
 Current status: {{ issue.state }}
@@ -67,8 +68,11 @@ Execution rules:
 2. Operate autonomously and complete the task end to end unless blocked by missing auth, permissions, or required external systems.
 3. Reproduce the issue or confirm the requested change before implementing when practical.
 4. Prefer targeted validation that proves the changed behavior directly.
-5. If Linear access is available, use `linear_graphql` only when the task needs tracker context or other Linear operations that are not covered by a dedicated tool.
-6. Linear lookup rules:
+5. Do not commit directly to `main`.
+6. Work on an issue branch. If `Branch Name` is present, use it. Otherwise create a deterministic branch from the issue identifier and title, and reuse the same branch on later `Rework` runs.
+7. After the implementation work and validation are complete, push the branch and open or update a GitHub pull request before posting your final Linear completion comment.
+8. If Linear access is available, use `linear_graphql` only when the task needs tracker context or other Linear operations that are not covered by a dedicated tool.
+9. Linear lookup rules:
    - The current Linear issue id is already provided in this prompt as `Issue ID`. Use that provided id for `linear_add_issue_comment`.
    - Do not use `linear_graphql` just to look up the current issue id for the completion comment.
    - To fetch a Linear issue by ticket identifier such as `OWN-15`, query the `issues` connection with an identifier filter, for example:
@@ -77,7 +81,8 @@ Execution rules:
    - Do not use `issueV2(...)`.
    - Do not use `issue(identifier: ...)`.
    - `issue(id: ...)` is only for a known Linear issue id / UUID, not for identifier-based lookup.
-7. When the implementation work is complete and validation passes, call `linear_add_issue_comment` exactly once with the provided `Issue ID` and a 2-4 sentence plain-text summary of what changed and how you validated it.
-8. Do not use `linear_graphql` to post the completion comment unless `linear_add_issue_comment` is unavailable or clearly failing.
-9. Post the Linear completion comment before your final output.
-10. Final output must summarize completed work, validation run, and any remaining blocker.
+10. When the implementation work is complete and validation passes, call `linear_add_issue_comment` exactly once with the provided `Issue ID` and a 2-4 sentence plain-text summary of what changed and how you validated it.
+11. Include the GitHub pull request URL in that `linear_add_issue_comment` body.
+12. Do not use `linear_graphql` to post the completion comment unless `linear_add_issue_comment` is unavailable or clearly failing.
+13. Post the Linear completion comment before your final output.
+14. Final output must summarize completed work, validation run, and any remaining blocker.

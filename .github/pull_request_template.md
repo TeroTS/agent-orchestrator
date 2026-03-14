@@ -18,5 +18,5 @@ _<!-- A short description of what we are changing. Use simple language. Assume r
 
 #### Test Plan
 
-- [ ] `make -C elixir all`
+- [ ] `./scripts/verify`
 - [ ] <!-- Additional targeted checks (list below) -->

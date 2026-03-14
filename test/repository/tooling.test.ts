@@ -58,12 +58,21 @@ describe("repository tooling", () => {
     ).resolves.toContain("npm run typecheck");
     await expect(
       readFile(resolve(repoRoot, ".nvmrc"), "utf8"),
-    ).resolves.toMatch(/\d+\.\d+\.\d+/);
+    ).resolves.toMatch(/^24\.\d+\.\d+\s*$/);
+    await expect(
+      readFile(resolve(repoRoot, ".github/workflows/make-all.yml"), "utf8"),
+    ).resolves.toContain("actions/checkout@v5");
+    await expect(
+      readFile(resolve(repoRoot, ".github/workflows/make-all.yml"), "utf8"),
+    ).resolves.toContain("actions/setup-node@v5");
     await expect(
       readFile(resolve(repoRoot, "AGENTS.md"), "utf8"),
     ).resolves.toEqual(expect.stringContaining("./scripts/setup"));
     await expect(
       readFile(resolve(repoRoot, "AGENTS.md"), "utf8"),
     ).resolves.toEqual(expect.stringContaining("./scripts/verify"));
+    await expect(
+      readFile(resolve(repoRoot, ".github/pull_request_template.md"), "utf8"),
+    ).resolves.toEqual(expect.stringContaining("`./scripts/verify`"));
   });
 });

@@ -142,6 +142,12 @@ export class AgentRunner {
         throw new Error("Codex did not post a completion comment.");
       }
 
+      if (!containsGitHubPullRequestUrl(turnResult.completionComment.body)) {
+        throw new Error(
+          "Codex did not include a GitHub PR URL in the completion comment.",
+        );
+      }
+
       const refreshedIssues = await this.issueStateRefresher([issue.id]);
       if (refreshedIssues[0]) {
         issue = refreshedIssues[0];
@@ -180,4 +186,8 @@ export class AgentRunner {
       });
     }
   }
+}
+
+function containsGitHubPullRequestUrl(body: string): boolean {
+  return /https:\/\/github\.com\/[^/\s]+\/[^/\s]+\/pull\/\d+\S*/i.test(body);
 }

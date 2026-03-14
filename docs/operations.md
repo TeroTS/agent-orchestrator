@@ -29,6 +29,15 @@ Use environment indirection for secrets such as `LINEAR_API_KEY`.
   `/api/v1/running`, `/api/v1/retries`, `/api/v1/completed`, `/api/v1/health`,
   `/api/v1/ready`, `/api/v1/refresh`, and `/api/v1/reconcile`.
 
+## Git Flow Contract
+
+- Normal agent delivery path is: issue branch -> GitHub PR -> Linear completion
+  comment with PR URL -> `In Review`.
+- Agent runs should not hand off successfully without a GitHub PR URL in the
+  final `linear_add_issue_comment` body.
+- `Done` is expected to come from merge-driven automation or follow-up process,
+  not from the coding run alone.
+
 ## Failure Modes
 
 - **Workflow validation failure**: startup or dispatch is blocked until config is

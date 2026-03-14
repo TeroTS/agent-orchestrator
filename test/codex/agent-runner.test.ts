@@ -480,6 +480,87 @@ rl.on("line", (line) => {
       message: "Codex did not post a completion comment.",
     });
   });
+
+  it("requires a GitHub PR URL in the completion comment before treating the run as successful", async () => {
+    const workspaceRoot = await mkdtemp(
+      join(tmpdir(), "agent-runner-workspace-"),
+    );
+    tempDirs.push(workspaceRoot);
+    const appServerDir = await mkdtemp(join(tmpdir(), "agent-runner-server-"));
+    tempDirs.push(appServerDir);
+    const promptLogPath = join(appServerDir, "prompts.log");
+    const scriptPath = join(appServerDir, "fake-app-server.mjs");
+
+    await writeFile(
+      scriptPath,
+      `
+import readline from "node:readline";
+
+const rl = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });
+
+function send(message) {
+  process.stdout.write(JSON.stringify(message) + "\\n");
+}
+
+rl.on("line", (line) => {
+  const msg = JSON.parse(line);
+  if (msg.method === "initialize") {
+    send({ id: msg.id, result: { ok: true } });
+    return;
+  }
+  if (msg.method === "thread/start") {
+    send({ id: msg.id, result: { thread: { id: "thread-1" } } });
+    return;
+  }
+  if (msg.method === "turn/start") {
+    send({ id: msg.id, result: { turn: { id: "turn-1" } } });
+      send({
+        id: "tool-comment-1",
+        method: "item/tool/call",
+        params: {
+          tool: "linear_add_issue_comment",
+          callId: "call-comment-1",
+          threadId: "thread-1",
+          turnId: "turn-1",
+          arguments: {
+            issueId: "issue-1",
+            body: "Implemented the requested change and validated it."
+        }
+      }
+    });
+    send({ method: "turn/completed", params: {} });
+  }
+});
+`,
+      "utf8",
+    );
+
+    const runner = new AgentRunner({
+      workflowDefinition: validWorkflowDefinition(
+        workspaceRoot,
+        `${process.execPath} ${scriptPath}`,
+        promptLogPath,
+      ),
+      issueStateRefresher: vi.fn().mockResolvedValue([]),
+      linearFetchFn: mockLinearCommentFetch(
+        "Implemented the requested change and validated it.",
+      ),
+    });
+
+    await expect(
+      runner.runAttempt({
+        issue: makeIssue({
+          id: "issue-1",
+          identifier: "ABC-1",
+          state: "In Progress",
+        }),
+        attempt: null,
+      }),
+    ).rejects.toMatchObject({
+      message:
+        "Codex did not include a GitHub PR URL in the completion comment.",
+    });
+  });
 });
 
 function validWorkflowDefinition(
@@ -531,7 +612,9 @@ function makeIssue(
   };
 }
 
-function mockLinearCommentFetch() {
+function mockLinearCommentFetch(
+  commentBody = "Implemented the requested change and validated it. PR: https://github.com/example/repo/pull/123",
+) {
   return vi.fn().mockResolvedValue(
     new Response(
       JSON.stringify({
@@ -540,7 +623,7 @@ function mockLinearCommentFetch() {
             success: true,
             comment: {
               id: "comment-1",
-              body: "Implemented the requested change and validated it.",
+              body: commentBody,
               url: "https://linear.app/demo/comment/comment-1",
             },
           },

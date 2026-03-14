@@ -20,10 +20,19 @@ describe("repository WORKFLOW.md", () => {
     const validation = validateWorkflowForDispatch(definition);
 
     expect(validation.ok).toBe(true);
-    expect(definition.promptTemplate).not.toContain("cd elixir");
     expect(definition.promptTemplate).toContain("{{ issue.id }}");
+    expect(definition.promptTemplate).toContain("{{ issue.branchName }}");
     expect(definition.promptTemplate).toContain("{{ issue.identifier }}");
     expect(definition.promptTemplate).toContain("linear_add_issue_comment");
+    expect(definition.promptTemplate).toContain(
+      "Do not commit directly to `main`",
+    );
+    expect(definition.promptTemplate).toContain(
+      "open or update a GitHub pull request",
+    );
+    expect(definition.promptTemplate).toContain(
+      "Include the GitHub pull request URL in that `linear_add_issue_comment` body",
+    );
     expect(definition.promptTemplate).toContain(
       "issues(filter: { identifier: { eq: $identifier } })",
     );
