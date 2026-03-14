@@ -32,6 +32,7 @@ type TrackerFacade = {
   fetchCandidateIssues(activeStates: string[]): Promise<any[]>;
   fetchIssuesByStates(states: string[]): Promise<any[]>;
   fetchIssueStatesByIds(issueIds: string[]): Promise<any[]>;
+  fetchIssueContextById(issueId: string): Promise<any>;
   transitionIssueToState(issueId: string, stateName: string): Promise<any>;
 };
 
@@ -84,6 +85,10 @@ export async function createService(input: {
       const client = createTrackerClient(workflowStore.current(), logger);
       return client.fetchIssueStatesByIds(issueIds);
     },
+    fetchIssueContextById: async (issueId: string) => {
+      const client = createTrackerClient(workflowStore.current(), logger);
+      return client.fetchIssueContextById(issueId);
+    },
     transitionIssueToState: async (issueId: string, stateName: string) => {
       const client = createTrackerClient(workflowStore.current(), logger);
       return client.transitionIssueToState(issueId, stateName);
@@ -96,6 +101,7 @@ export async function createService(input: {
       const runner = new AgentRunner({
         workflowDefinition: workflowStore.current(),
         issueStateRefresher: trackerFacade.fetchIssueStatesByIds,
+        issueContextFetcher: trackerFacade.fetchIssueContextById,
         logger,
       });
 

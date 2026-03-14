@@ -18,6 +18,7 @@ import {
 export interface AgentRunnerOptions {
   workflowDefinition: WorkflowDefinition;
   issueStateRefresher: (issueIds: string[]) => Promise<OrchestrationIssue[]>;
+  issueContextFetcher?: (issueId: string) => Promise<OrchestrationIssue>;
   linearFetchFn?: typeof fetch;
   logger?: StructuredLogger;
 }
@@ -27,12 +28,16 @@ export class AgentRunner {
   private readonly issueStateRefresher: (
     issueIds: string[],
   ) => Promise<OrchestrationIssue[]>;
+  private readonly issueContextFetcher:
+    | ((issueId: string) => Promise<OrchestrationIssue>)
+    | undefined;
   private readonly linearFetchFn: typeof fetch | undefined;
   private readonly logger: StructuredLogger;
 
   constructor(options: AgentRunnerOptions) {
     this.workflowDefinition = options.workflowDefinition;
     this.issueStateRefresher = options.issueStateRefresher;
+    this.issueContextFetcher = options.issueContextFetcher;
     this.linearFetchFn = options.linearFetchFn;
     this.logger = options.logger ?? createStructuredLogger();
   }
@@ -118,8 +123,14 @@ export class AgentRunner {
         throw new Error("run canceled");
       }
 
+      const issueContext =
+        (await this.issueContextFetcher?.(issue.id).catch(() => issue)) ??
+        issue;
       const prompt = await renderPromptTemplate(this.workflowDefinition, {
-        issue,
+        issue: {
+          ...issueContext,
+          comments: issueContext.comments ?? [],
+        },
         attempt: input.attempt,
       });
 

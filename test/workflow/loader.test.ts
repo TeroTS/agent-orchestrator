@@ -203,6 +203,32 @@ describe("renderPromptTemplate", () => {
     expect(rendered).toBe("Issue issue-123 ABC-123 attempt 2");
   });
 
+  it("renders recent issue comments when present", async () => {
+    const rendered = await renderPromptTemplate(
+      {
+        config: {},
+        promptTemplate:
+          "{% for comment in issue.comments %}[{{ comment.authorName }}] {{ comment.body }} {% endfor %}",
+      },
+      {
+        issue: {
+          identifier: "ABC-123",
+          comments: [
+            {
+              id: "comment-1",
+              body: "Review feedback from GitHub.",
+              authorName: "Claude Reviewer",
+            },
+          ],
+        },
+      },
+    );
+
+    expect(rendered).toContain(
+      "[Claude Reviewer] Review feedback from GitHub.",
+    );
+  });
+
   it("fails on unknown variables", async () => {
     await expect(
       renderPromptTemplate(

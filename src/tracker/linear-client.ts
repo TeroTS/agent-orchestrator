@@ -2,6 +2,7 @@ import {
   createStructuredLogger,
   type StructuredLogger,
 } from "../observability/structured-logger.js";
+import type { IssueComment } from "../orchestrator/rules.js";
 
 export interface LinearBlockerRef {
   id: string | null;
@@ -20,6 +21,7 @@ export interface LinearIssue {
   url: string | null;
   labels: string[];
   blockedBy: LinearBlockerRef[];
+  comments: IssueComment[];
   createdAt: Date | null;
   updatedAt: Date | null;
 }
@@ -147,6 +149,27 @@ export class LinearTrackerClient {
     }
 
     return connection.nodes.map(normalizeIssue);
+  }
+
+  async fetchIssueContextById(issueId: string): Promise<LinearIssue> {
+    const payload: GraphQLResponse<LinearIssueContextPayload> =
+      await this.request<LinearIssueContextPayload>({
+        query: issueContextByIdQuery,
+        variables: {
+          id: issueId,
+          commentsFirst: 5,
+        },
+      });
+
+    const issue = payload.data?.issue;
+    if (!issue?.id || !issue.identifier) {
+      throw new TrackerError(
+        "linear_unknown_payload",
+        "Linear issue context payload was malformed.",
+      );
+    }
+
+    return normalizeIssue(issue);
   }
 
   async transitionIssueToState(
@@ -424,6 +447,10 @@ interface LinearIssueUpdatePayload {
   };
 }
 
+interface LinearIssueContextPayload {
+  issue?: LinearIssueNode | null;
+}
+
 interface LinearCommentCreatePayload {
   commentCreate?: {
     success?: boolean;
@@ -463,6 +490,17 @@ interface LinearIssueNode {
       };
     }>;
   };
+  comments?: {
+    nodes?: Array<{
+      id?: string;
+      body?: string;
+      url?: string | null;
+      createdAt?: string | null;
+      user?: {
+        name?: string | null;
+      } | null;
+    }>;
+  };
 }
 
 function normalizeIssue(node: LinearIssueNode): LinearIssue {
@@ -487,6 +525,25 @@ function normalizeIssue(node: LinearIssueNode): LinearIssue {
         id: relation.issue?.id ?? null,
         identifier: relation.issue?.identifier ?? null,
         state: relation.issue?.state?.name ?? null,
+      })),
+    comments: (node.comments?.nodes ?? [])
+      .filter(
+        (
+          comment,
+        ): comment is {
+          id: string;
+          body: string;
+          url?: string | null;
+          createdAt?: string | null;
+          user?: { name?: string | null } | null;
+        } => !!comment?.id && typeof comment.body === "string",
+      )
+      .map((comment) => ({
+        id: comment.id,
+        body: comment.body,
+        url: comment.url ?? null,
+        authorName: comment.user?.name ?? null,
+        createdAt: parseDate(comment.createdAt),
       })),
     createdAt: parseDate(node.createdAt),
     updatedAt: parseDate(node.updatedAt),
@@ -584,6 +641,53 @@ const issueStatesByIdsQuery = `
         updatedAt
         state {
           name
+        }
+      }
+    }
+  }
+`;
+
+const issueContextByIdQuery = `
+  query IssueContextById($id: String!, $commentsFirst: Int!) {
+    issue(id: $id) {
+      id
+      identifier
+      title
+      description
+      priority
+      branchName
+      url
+      createdAt
+      updatedAt
+      state {
+        name
+      }
+      labels {
+        nodes {
+          name
+        }
+      }
+      inverseRelations {
+        nodes {
+          type
+          issue {
+            id
+            identifier
+            state {
+              name
+            }
+          }
+        }
+      }
+      comments(first: $commentsFirst) {
+        nodes {
+          id
+          body
+          url
+          createdAt
+          user {
+            name
+          }
         }
       }
     }

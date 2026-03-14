@@ -74,5 +74,32 @@ describe("repository tooling", () => {
     await expect(
       readFile(resolve(repoRoot, ".github/pull_request_template.md"), "utf8"),
     ).resolves.toEqual(expect.stringContaining("`./scripts/verify`"));
+    await expect(
+      readFile(resolve(repoRoot, ".github/pull_request_template.md"), "utf8"),
+    ).resolves.toEqual(expect.stringContaining("Linear Issue:"));
+    await expect(
+      readFile(
+        resolve(repoRoot, ".github/workflows/github-review.yml"),
+        "utf8",
+      ),
+    ).resolves.toEqual(expect.stringContaining("workflow_run"));
+    await expect(
+      readFile(
+        resolve(repoRoot, ".github/workflows/github-review.yml"),
+        "utf8",
+      ),
+    ).resolves.toEqual(expect.stringContaining('workflows: ["make-all"]'));
+    await expect(
+      readFile(
+        resolve(repoRoot, ".github/workflows/github-review.yml"),
+        "utf8",
+      ),
+    ).resolves.toEqual(expect.stringContaining("pull_request"));
+    await expect(
+      readFile(
+        resolve(repoRoot, ".github/workflows/pr-description-lint.yml"),
+        "utf8",
+      ),
+    ).resolves.toEqual(expect.stringContaining("Linear Issue:"));
   });
 });

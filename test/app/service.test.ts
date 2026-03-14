@@ -54,6 +54,7 @@ describe("createService", () => {
         fetchCandidateIssues: vi.fn().mockResolvedValue([]),
         fetchIssuesByStates: vi.fn().mockResolvedValue([]),
         fetchIssueStatesByIds: vi.fn().mockResolvedValue([]),
+        fetchIssueContextById: vi.fn().mockResolvedValue(null),
         transitionIssueToState: vi.fn(),
       },
       runner: {

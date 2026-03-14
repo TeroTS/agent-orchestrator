@@ -173,10 +173,71 @@ describe("LinearTrackerClient", () => {
         url: null,
         labels: [],
         blockedBy: [],
+        comments: [],
         createdAt: null,
         updatedAt: null,
       },
     ]);
+  });
+
+  it("fetches full issue context with recent comments for prompt rendering", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse({
+        data: {
+          issue: {
+            id: "issue-1",
+            identifier: "ABC-1",
+            title: "Refresh state",
+            description: "Investigate reviewer feedback.",
+            priority: 2,
+            branchName: "abc-1-fix",
+            url: "https://linear.app/demo/issue/ABC-1",
+            createdAt: "2026-03-01T10:00:00.000Z",
+            updatedAt: "2026-03-01T12:00:00.000Z",
+            state: { name: "Rework" },
+            comments: {
+              nodes: [
+                {
+                  id: "comment-1",
+                  body: "GitHub review: add a missing regression test.",
+                  url: "https://linear.app/demo/comment/comment-1",
+                  createdAt: "2026-03-14T12:00:00.000Z",
+                  user: {
+                    name: "Claude Reviewer",
+                  },
+                },
+              ],
+            },
+          },
+        },
+      }),
+    );
+
+    const client = new LinearTrackerClient({
+      endpoint: "https://api.linear.app/graphql",
+      apiKey: "linear-token",
+      projectSlug: "demo-project",
+      fetchFn: fetchMock,
+    });
+
+    const issue = await client.fetchIssueContextById("issue-1");
+
+    const requestBody = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    expect(requestBody.query).toContain("IssueContextById");
+    expect(requestBody.variables).toEqual({ id: "issue-1", commentsFirst: 5 });
+    expect(issue).toMatchObject({
+      id: "issue-1",
+      identifier: "ABC-1",
+      state: "Rework",
+      comments: [
+        {
+          id: "comment-1",
+          body: "GitHub review: add a missing regression test.",
+          url: "https://linear.app/demo/comment/comment-1",
+          authorName: "Claude Reviewer",
+        },
+      ],
+    });
   });
 
   it("moves an issue to a named workflow state by resolving the team state id first", async () => {

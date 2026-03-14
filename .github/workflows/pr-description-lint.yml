@@ -9,11 +9,16 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Validate PR description is present
+      - name: Validate PR description is present and includes the Linear issue
         shell: bash
         run: |
           body='${{ github.event.pull_request.body }}'
           if [ -z "$(printf '%s' "$body" | tr -d '[:space:]')" ]; then
             echo "PR description must not be empty." >&2
+            exit 1
+          fi
+
+          if ! printf '%s' "$body" | grep -Eq '^Linear Issue:[[:space:]]+[A-Z][A-Z0-9]*-[0-9]+[[:space:]]*$'; then
+            echo "PR description must include a 'Linear Issue: OWN-123' line." >&2
             exit 1
           fi

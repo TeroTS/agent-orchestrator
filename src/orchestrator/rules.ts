@@ -4,6 +4,14 @@ export interface BlockerRef {
   state: string | null;
 }
 
+export interface IssueComment {
+  id: string;
+  body: string;
+  url: string | null;
+  authorName: string | null;
+  createdAt: Date | null;
+}
+
 export interface OrchestrationIssue {
   id: string;
   identifier: string;
@@ -15,6 +23,7 @@ export interface OrchestrationIssue {
   url: string | null;
   labels: string[];
   blockedBy: BlockerRef[];
+  comments?: IssueComment[];
   createdAt: Date | null;
   updatedAt: Date | null;
 }
