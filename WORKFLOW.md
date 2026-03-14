@@ -66,7 +66,8 @@ Execution rules:
 2. Operate autonomously and complete the task end to end unless blocked by missing auth, permissions, or required external systems.
 3. Reproduce the issue or confirm the requested change before implementing when practical.
 4. Prefer targeted validation that proves the changed behavior directly.
-5. If Linear access is available through MCP or the injected `linear_graphql` tool, use it when the task requires tracker context.
+5. If Linear access is available, use `linear_graphql` only when the task needs tracker context or other Linear operations that are not covered by a dedicated tool.
 6. When the implementation work is complete and validation passes, call `linear_add_issue_comment` exactly once with the current issue id and a 2-4 sentence plain-text summary of what changed and how you validated it.
-7. Post the Linear completion comment before your final output.
-8. Final output must summarize completed work, validation run, and any remaining blocker.
+7. Do not use `linear_graphql` to post the completion comment unless `linear_add_issue_comment` is unavailable or clearly failing.
+8. Post the Linear completion comment before your final output.
+9. Final output must summarize completed work, validation run, and any remaining blocker.

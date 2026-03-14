@@ -23,5 +23,8 @@ describe("repository WORKFLOW.md", () => {
     expect(definition.promptTemplate).not.toContain("cd elixir");
     expect(definition.promptTemplate).toContain("{{ issue.identifier }}");
     expect(definition.promptTemplate).toContain("linear_add_issue_comment");
+    expect(definition.promptTemplate).toContain(
+      "Do not use `linear_graphql` to post the completion comment",
+    );
   });
 });
