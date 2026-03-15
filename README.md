@@ -116,6 +116,11 @@ without first looking the issue up via `linear_graphql`. The shipped workflow
 also treats branch + PR as the normal delivery path: the agent is expected to
 work on an issue branch, open or update a GitHub PR, and include that PR URL in
 the final Linear completion comment before the run can hand off successfully.
+The shipped PR template is intentionally minimal and machine-filled with
+`Linear Issue`, `Context`, and `Summary` sections only. On `Rework` runs, the
+default workflow now injects the latest blocking GitHub review feedback into
+the agent prompt directly, while Linear receives only a short review-status
+breadcrumb instead of a full copy of review findings.
 
 ## Status server
 
