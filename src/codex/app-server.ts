@@ -1560,7 +1560,6 @@ async function executeCompleteTicketDeliveryToolCall(
         title: deliveryConfig.title,
         ticketUrl: deliveryConfig.url,
         summary: parsed.summary,
-        targetedChecks: parsed.targetedChecks,
       }),
       "utf8",
     );
@@ -1863,44 +1862,54 @@ function renderPullRequestBody(
     title: string;
     ticketUrl: string | null;
     summary: string;
-    targetedChecks: string[];
   },
 ): string {
   const summaryBullets = normalizeBulletList(input.summary)
     .map((line) => `- ${line}`)
     .join("\n");
-  const targetedCheckBullets = input.targetedChecks
-    .map((line) => `- [x] ${line}`)
-    .join("\n");
   const context = input.ticketUrl
     ? `Implements ${input.identifier}: ${input.title}. Ticket: ${input.ticketUrl}`
     : `Implements ${input.identifier}: ${input.title}.`;
-  const testPlan = ["- [x] `./scripts/verify`", targetedCheckBullets]
-    .filter(Boolean)
-    .join("\n");
 
-  return template
-    .replace(/^Linear Issue:.*$/m, `Linear Issue: ${input.identifier}`)
-    .replace(
-      /#### Context\s*\n\s*\n[\s\S]*?\n#### TL;DR/m,
-      `#### Context\n\n${context}\n\n#### TL;DR`,
-    )
-    .replace(
-      /#### TL;DR\s*\n\s*\n[\s\S]*?\n#### Summary/m,
-      `#### TL;DR\n\n${input.summary}\n\n#### Summary`,
-    )
-    .replace(
-      /#### Summary\s*\n\s*\n[\s\S]*?\n#### Alternatives/m,
-      `#### Summary\n\n${summaryBullets}\n\n#### Alternatives`,
-    )
-    .replace(
-      /#### Alternatives\s*\n\s*\n[\s\S]*?\n#### Test Plan/m,
-      "#### Alternatives\n\n- None documented.\n\n#### Test Plan",
-    )
-    .replace(
-      /#### Test Plan\s*\n\s*\n[\s\S]*$/m,
-      `#### Test Plan\n\n${testPlan}`,
-    );
+  return replaceMarkdownSection(
+    replaceMarkdownSection(
+      template.replace(
+        /^Linear Issue:.*$/m,
+        `Linear Issue: ${input.identifier}`,
+      ),
+      "#### Context",
+      context,
+    ),
+    "#### Summary",
+    summaryBullets,
+  );
+}
+
+function replaceMarkdownSection(
+  template: string,
+  heading: string,
+  content: string,
+): string {
+  const lines = template.split("\n");
+  const startIndex = lines.findIndex((line) => line.trim() === heading);
+  if (startIndex === -1) {
+    return template;
+  }
+
+  let endIndex = startIndex + 1;
+  while (endIndex < lines.length && !lines[endIndex]?.startsWith("#### ")) {
+    endIndex += 1;
+  }
+
+  const contentLines = content.split("\n");
+  const replacement = [...lines.slice(0, startIndex + 1), "", ...contentLines];
+
+  if (endIndex < lines.length) {
+    replacement.push("");
+  }
+
+  replacement.push(...lines.slice(endIndex));
+  return replacement.join("\n");
 }
 
 function buildCompletionComment(

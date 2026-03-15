@@ -836,24 +836,13 @@ describe("CodexAppServerClient", () => {
               "",
               "#### Context",
               "",
-              "<!-- Why is this change needed? Length <= 240 chars -->",
-              "",
-              "#### TL;DR",
-              "",
-              "_<!-- A short description of what we are changing. Use simple language. Assume reader is not familiar with this code. Length <= 120 chars -->_",
+              "<!-- Why is this change needed? Length <= 200 chars -->",
               "",
               "#### Summary",
               "",
               "- <!-- Details of the changes in bullet points -->",
-              "",
-              "#### Alternatives",
-              "",
-              "- <!-- What alternatives have been considered? Why not? -->",
-              "",
-              "#### Test Plan",
-              "",
-              "- [ ] `./scripts/verify`",
-              "- [ ] <!-- Additional targeted checks (list below) -->",
+              "- <!-- Keep them high level -->",
+              "- <!-- Each item <= 100 chars -->",
             ].join("\n"),
           ),
       },
@@ -939,15 +928,12 @@ describe("CodexAppServerClient", () => {
     expect(prBody).toContain(
       "Implements ABC-1: Example. Ticket: https://linear.app/demo/issue/ABC-1",
     );
-    expect(prBody).toContain("#### TL;DR");
-    expect(prBody).toContain("Added the requested files.");
     expect(prBody).toContain("#### Summary");
     expect(prBody).toContain("- Added the requested files.");
-    expect(prBody).toContain("#### Alternatives");
-    expect(prBody).toContain("- None documented.");
-    expect(prBody).toContain("#### Test Plan");
-    expect(prBody).toContain("- [x] `./scripts/verify`");
-    expect(prBody).toContain("- [x] Verified the files exist.");
+    expect(prBody).not.toContain("#### TL;DR");
+    expect(prBody).not.toContain("#### Alternatives");
+    expect(prBody).not.toContain("#### Test Plan");
+    expect(prBody).not.toContain("<!--");
   });
 
   it("fails complete_ticket_delivery before publishing when runtime verify fails", async () => {
