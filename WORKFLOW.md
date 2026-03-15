@@ -87,7 +87,7 @@ Recent ticket comments:
 Latest GitHub review feedback:
 {% if issue.githubReviewComments.size > 0 or issue.githubReviewSummary %}
 {% if issue.githubReviewRound %}- Review round: {{ issue.githubReviewRound }}{% if issue.githubReviewUrl %} ({{ issue.githubReviewUrl }}){% endif %}
-{% elseif issue.githubReviewUrl %}- Review URL: {{ issue.githubReviewUrl }}
+{% elsif issue.githubReviewUrl %}- Review URL: {{ issue.githubReviewUrl }}
 {% endif %}
 {% if issue.githubReviewSummary %}
 

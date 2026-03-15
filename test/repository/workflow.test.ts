@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   loadWorkflowDefinition,
+  renderPromptTemplate,
   validateWorkflowForDispatch,
 } from "../../src/workflow/loader.js";
 
@@ -89,5 +90,56 @@ describe("repository WORKFLOW.md", () => {
     expect(definition.promptTemplate).toContain(
       "posts the final Linear completion comment with the PR URL",
     );
+  });
+
+  it("renders the default workflow prompt template with review feedback context", async () => {
+    process.env.LINEAR_API_KEY = "repo-test-token";
+
+    const definition = await loadWorkflowDefinition({
+      workflowPath: repositoryWorkflowPath,
+    });
+
+    const rendered = await renderPromptTemplate(definition, {
+      issue: {
+        id: "issue-1",
+        branchName: "terosuhonen/own-42-fix",
+        identifier: "OWN-42",
+        title: "Fix review loop",
+        state: "Rework",
+        labels: ["bugfix"],
+        url: "https://linear.app/example/issue/OWN-42",
+        description: "Fix the broken review prompt.",
+        comments: [
+          {
+            id: "comment-1",
+            body: "Linear breadcrumb",
+            url: null,
+            authorName: "symphony",
+            createdAt: null,
+          },
+        ],
+        blockedBy: [],
+        createdAt: null,
+        updatedAt: null,
+        githubReviewSummary: "Reviewer asked for a syntax fix.",
+        githubReviewRound: 2,
+        githubReviewUrl: "https://github.com/example/repo/pull/42",
+        githubReviewComments: [
+          {
+            id: "review-comment-1",
+            body: "WORKFLOW.md: use Liquid-compatible syntax",
+            url: null,
+            authorName: "claude[bot]",
+            createdAt: null,
+          },
+        ],
+      },
+      attempt: 1,
+    });
+
+    expect(rendered).toContain("Latest GitHub review feedback:");
+    expect(rendered).toContain("Review round: 2");
+    expect(rendered).toContain("Reviewer asked for a syntax fix.");
+    expect(rendered).toContain("WORKFLOW.md: use Liquid-compatible syntax");
   });
 });
