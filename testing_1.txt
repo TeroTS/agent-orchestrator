@@ -1,1 +1,1 @@
-This is testing file 1.
+OWN-41 repository-root validation file 1.
