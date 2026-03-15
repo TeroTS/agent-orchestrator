@@ -1613,7 +1613,17 @@ async function executeCompleteTicketDeliveryToolCall(
       runCommand,
       {
         command: "gh",
-        args: ["pr", "view", "--repo", repo, "--json", "url", "-q", ".url"],
+        args: [
+          "pr",
+          "view",
+          currentBranch,
+          "--repo",
+          repo,
+          "--json",
+          "url",
+          "-q",
+          ".url",
+        ],
         cwd: workspacePath,
       },
       "ticket_delivery_pr_view",

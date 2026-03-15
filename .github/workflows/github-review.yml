@@ -71,6 +71,13 @@ jobs:
           github_token: ${{ steps.app-token.outputs.token }}
           use_bedrock: "true"
           claude_args: "--model global.anthropic.claude-sonnet-4-6 --max-turns 10"
+          prompt: |
+            Review this pull request for bugs, behavioral regressions, risky
+            changes, and missing tests.
+
+            Post review findings directly on the pull request. Focus on
+            actionable issues that should block merge; do not require an
+            @claude mention to run.
 
       - name: Sync blocking review feedback to Linear
         if: steps.reviewer.outcome == 'failure'

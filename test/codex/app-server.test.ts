@@ -769,7 +769,7 @@ describe("CodexAppServerClient", () => {
           return { stdout: "", stderr: "", exitCode: 0 };
         case "gh pr create --repo example/repo --base main --head feature/abc-1 --title ABC-1: Example --body-file":
           return { stdout: "", stderr: "", exitCode: 0 };
-        case "gh pr view --repo example/repo --json url -q .url":
+        case "gh pr view feature/abc-1 --repo example/repo --json url -q .url":
           return {
             stdout: "https://github.com/example/repo/pull/123\n",
             stderr: "",
@@ -921,7 +921,17 @@ describe("CodexAppServerClient", () => {
       ],
       [
         "gh",
-        ["pr", "view", "--repo", "example/repo", "--json", "url", "-q", ".url"],
+        [
+          "pr",
+          "view",
+          "feature/abc-1",
+          "--repo",
+          "example/repo",
+          "--json",
+          "url",
+          "-q",
+          ".url",
+        ],
       ],
     ]);
     expect(prBody).toContain("Linear Issue: ABC-1");
@@ -1001,6 +1011,114 @@ describe("CodexAppServerClient", () => {
 
     expect(fetchFn).not.toHaveBeenCalled();
     expect(commandRunner).toHaveBeenCalledTimes(3);
+  });
+
+  it("resolves the pull request URL from the existing PR on the edit path", async () => {
+    const { dir, scriptPath } = await createScenarioDir(
+      "codex-complete-ticket-delivery-edit",
+      "complete-ticket-delivery",
+    );
+    const existingPrUrl = "https://github.com/example/repo/pull/789";
+    const commandRunner = vi.fn(async (input) => {
+      const command = `${input.command} ${input.args.join(" ")}`.trim();
+      switch (command) {
+        case "git branch --show-current":
+          return { stdout: "feature/abc-1\n", stderr: "", exitCode: 0 };
+        case "git status --porcelain":
+          return { stdout: "", stderr: "", exitCode: 0 };
+        case "./scripts/verify":
+          return { stdout: "", stderr: "", exitCode: 0 };
+        case "gh repo view --json nameWithOwner -q .nameWithOwner":
+          return { stdout: "example/repo\n", stderr: "", exitCode: 0 };
+        case "git push -u origin HEAD":
+          return { stdout: "", stderr: "", exitCode: 0 };
+        case 'gh pr list --repo example/repo --head feature/abc-1 --state open --json number,url --jq if length == 1 then .[0].url elif length == 0 then "" else error("multiple open pull requests for branch") end':
+          return { stdout: `${existingPrUrl}\n`, stderr: "", exitCode: 0 };
+        case `gh pr edit ${existingPrUrl} --title ABC-1: Example --body-file`:
+          return { stdout: "", stderr: "", exitCode: 0 };
+        case `gh pr view feature/abc-1 --repo example/repo --json url -q .url`:
+          return { stdout: `${existingPrUrl}\n`, stderr: "", exitCode: 0 };
+        default:
+          if (
+            input.command === "gh" &&
+            input.args[0] === "pr" &&
+            input.args[1] === "edit"
+          ) {
+            return { stdout: "", stderr: "", exitCode: 0 };
+          }
+          throw new Error(`Unexpected command: ${command}`);
+      }
+    });
+    const client = new CodexAppServerClient({
+      command: `${process.execPath} ${scriptPath}`,
+      workspacePath: dir,
+      approvalPolicy: "never",
+      threadSandbox: "workspace-write",
+      turnSandboxPolicy: { type: "workspaceWrite" },
+      readTimeoutMs: 500,
+      turnTimeoutMs: 1000,
+      linearGraphql: {
+        endpoint: "https://linear.example/graphql",
+        apiKey: "token",
+        projectSlug: "demo",
+        fetchFn: vi.fn().mockResolvedValue(
+          new Response(
+            JSON.stringify({
+              data: {
+                commentCreate: {
+                  success: true,
+                  comment: {
+                    id: "comment-1",
+                    body: `Summary. Validation. PR: ${existingPrUrl}`,
+                    url: "https://linear.app/demo/comment/comment-1",
+                  },
+                },
+              },
+            }),
+            {
+              status: 200,
+              headers: {
+                "content-type": "application/json",
+              },
+            },
+          ),
+        ),
+      },
+      issueDelivery: {
+        issueId: "issue-1",
+        identifier: "ABC-1",
+        title: "Example",
+        url: "https://linear.app/demo/issue/ABC-1",
+        branchName: "feature/abc-1",
+        commandRunner,
+        readFileFn: vi.fn().mockResolvedValue(`Linear Issue: <!-- OWN-123 -->`),
+      },
+    });
+
+    await client.start();
+    const result = await client.runTurn({
+      prompt: "Hello",
+      title: "ABC-1: Example",
+    });
+    await client.stop();
+
+    expect(result.deliveryResult?.prUrl).toBe(existingPrUrl);
+    expect(
+      commandRunner.mock.calls.map(([input]) => [input.command, input.args]),
+    ).toContainEqual([
+      "gh",
+      [
+        "pr",
+        "view",
+        "feature/abc-1",
+        "--repo",
+        "example/repo",
+        "--json",
+        "url",
+        "-q",
+        ".url",
+      ],
+    ]);
   });
 
   it("opts into experimental dynamic tools and advertises input schemas on thread/start", async () => {
