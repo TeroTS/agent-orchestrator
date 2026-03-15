@@ -265,6 +265,40 @@ describe("repository tooling", () => {
     ).resolves.toEqual(expect.stringContaining("show_full_output: true"));
     await expect(
       readFile(
+        resolve(repoRoot, ".github/workflows/github-review.yml"),
+        "utf8",
+      ),
+    ).resolves.toEqual(expect.stringContaining("id: review-sync"));
+    await expect(
+      readFile(
+        resolve(repoRoot, ".github/workflows/github-review.yml"),
+        "utf8",
+      ),
+    ).resolves.toEqual(
+      expect.stringContaining("if: steps.reviewer.outcome == 'success'"),
+    );
+    await expect(
+      readFile(
+        resolve(repoRoot, ".github/workflows/github-review.yml"),
+        "utf8",
+      ),
+    ).resolves.toEqual(
+      expect.stringContaining(
+        "steps.review-sync.outputs.blocking_review == 'true'",
+      ),
+    );
+    await expect(
+      readFile(
+        resolve(repoRoot, ".github/workflows/github-review.yml"),
+        "utf8",
+      ),
+    ).resolves.toEqual(
+      expect.not.stringContaining(
+        "Sync blocking review feedback to Linear\n        if: steps.reviewer.outcome == 'failure'",
+      ),
+    );
+    await expect(
+      readFile(
         resolve(repoRoot, ".github/workflows/pr-description-lint.yml"),
         "utf8",
       ),

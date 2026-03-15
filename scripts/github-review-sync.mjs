@@ -1,5 +1,6 @@
 /* global console, fetch, process */
 
+import { appendFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 const GITHUB_API_ROOT = "https://api.github.com";
@@ -39,6 +40,13 @@ export function buildLinearReviewComment({
   return body.length <= MAX_COMMENT_LENGTH
     ? body
     : `${body.slice(0, MAX_COMMENT_LENGTH - 15)}...(truncated)`;
+}
+
+export function isBlockingReviewState(reviewState) {
+  return (
+    typeof reviewState === "string" &&
+    reviewState.toUpperCase() === "CHANGES_REQUESTED"
+  );
 }
 
 function collectFeedbackLines({ reviews, reviewComments, since }) {
@@ -81,6 +89,16 @@ function collectFeedbackLines({ reviews, reviewComments, since }) {
   }
 
   return lines.slice(0, MAX_FEEDBACK_LINES);
+}
+
+function setGithubOutput(name, value) {
+  const outputPath = process.env.GITHUB_OUTPUT;
+  if (!outputPath) {
+    return;
+  }
+
+  const line = `${name}=${value}\n`;
+  appendFileSync(outputPath, line, "utf8");
 }
 
 async function fetchGitHubJson(path, token) {
@@ -254,11 +272,20 @@ async function main() {
     ),
   ]);
 
+  const blockingReviews = (Array.isArray(reviews) ? reviews : []).filter(
+    (review) => isBlockingReviewState(review?.state),
+  );
+  if (blockingReviews.length === 0) {
+    setGithubOutput("blocking_review", "false");
+    return;
+  }
+
   const feedbackLines = collectFeedbackLines({
-    reviews: Array.isArray(reviews) ? reviews : [],
+    reviews: blockingReviews,
     reviewComments: Array.isArray(reviewComments) ? reviewComments : [],
     since: reviewStartedAt,
   });
+  setGithubOutput("blocking_review", "true");
 
   const commentBody = buildLinearReviewComment({
     prUrl: pr.html_url,

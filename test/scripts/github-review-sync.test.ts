@@ -8,6 +8,7 @@ const reviewSyncModulePromise =
       workflowRunId: string;
       feedbackLines: string[];
     }): string;
+    isBlockingReviewState(reviewState: string | null | undefined): boolean;
     parseLinearIssueIdentifier(body: string | null | undefined): string | null;
   }>;
 
@@ -42,5 +43,15 @@ Linear Issue: OWN-123
     expect(comment).toContain("PR: https://github.com/example/repo/pull/123");
     expect(comment).toContain("tighten retry handling");
     expect(comment).toContain("Missing regression test");
+  });
+
+  it("treats CHANGES_REQUESTED as a blocking review state", async () => {
+    const { isBlockingReviewState } = await reviewSyncModulePromise;
+
+    expect(isBlockingReviewState("CHANGES_REQUESTED")).toBe(true);
+    expect(isBlockingReviewState("APPROVED")).toBe(false);
+    expect(isBlockingReviewState("COMMENTED")).toBe(false);
+    expect(isBlockingReviewState("DISMISSED")).toBe(false);
+    expect(isBlockingReviewState(null)).toBe(false);
   });
 });

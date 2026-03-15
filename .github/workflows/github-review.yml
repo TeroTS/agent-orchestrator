@@ -162,7 +162,8 @@ jobs:
             @claude mention to run.
 
       - name: Sync blocking review feedback to Linear
-        if: steps.reviewer.outcome == 'failure'
+        id: review-sync
+        if: steps.reviewer.outcome == 'success'
         env:
           GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
           PR_NUMBER: ${{ steps.meta.outputs.pr_number }}
@@ -171,7 +172,7 @@ jobs:
         run: node scripts/github-review-sync.mjs
 
       - name: Fail on blocking review
-        if: steps.reviewer.outcome == 'failure'
+        if: steps.reviewer.outcome == 'failure' || steps.review-sync.outputs.blocking_review == 'true'
         shell: bash
         run: |
           echo "External review reported blocking findings." >&2
