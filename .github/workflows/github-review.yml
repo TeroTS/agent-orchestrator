@@ -73,11 +73,18 @@ jobs:
           claude_args: "--model global.anthropic.claude-sonnet-4-6 --max-turns 10"
           show_full_output: true
           prompt: |
-            Review this pull request for bugs, behavioral regressions, risky
-            changes, and missing tests.
+            Review pull request #${{ steps.meta.outputs.pr_number }} in
+            ${{ github.repository }} at commit
+            ${{ steps.meta.outputs.head_sha }} for bugs, behavioral
+            regressions, risky changes, and missing tests.
+
+            The repository is already checked out at the PR head commit.
+            Do not use Bash, gh, or other shell commands to discover pull
+            request metadata. Use the PR context provided in this prompt and
+            review the checked-out changes directly.
 
             Post review findings directly on the pull request. Focus on
-            actionable issues that should block merge; do not require an
+            actionable issues that should block merge. Do not require an
             @claude mention to run.
 
       - name: Sync blocking review feedback to Linear

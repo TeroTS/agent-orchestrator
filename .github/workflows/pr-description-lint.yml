@@ -12,7 +12,7 @@ jobs:
       - name: Validate PR description is present and includes the Linear issue
         shell: bash
         run: |
-          body='${{ github.event.pull_request.body }}'
+          body=$(jq -r '.pull_request.body // ""' "$GITHUB_EVENT_PATH")
           if [ -z "$(printf '%s' "$body" | tr -d '[:space:]')" ]; then
             echo "PR description must not be empty." >&2
             exit 1

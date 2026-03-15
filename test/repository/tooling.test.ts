@@ -106,7 +106,23 @@ describe("repository tooling", () => {
         resolve(repoRoot, ".github/workflows/github-review.yml"),
         "utf8",
       ),
-    ).resolves.toEqual(expect.stringContaining("Review this pull request"));
+    ).resolves.toEqual(expect.stringContaining("Review pull request #"));
+    await expect(
+      readFile(
+        resolve(repoRoot, ".github/workflows/github-review.yml"),
+        "utf8",
+      ),
+    ).resolves.toEqual(
+      expect.stringContaining("The repository is already checked out"),
+    );
+    await expect(
+      readFile(
+        resolve(repoRoot, ".github/workflows/github-review.yml"),
+        "utf8",
+      ),
+    ).resolves.toEqual(
+      expect.stringContaining("Do not use Bash, gh, or other shell commands"),
+    );
     await expect(
       readFile(
         resolve(repoRoot, ".github/workflows/github-review.yml"),
@@ -119,6 +135,22 @@ describe("repository tooling", () => {
         "utf8",
       ),
     ).resolves.toEqual(expect.stringContaining("Linear Issue:"));
+    await expect(
+      readFile(
+        resolve(repoRoot, ".github/workflows/pr-description-lint.yml"),
+        "utf8",
+      ),
+    ).resolves.toEqual(expect.stringContaining("$GITHUB_EVENT_PATH"));
+    await expect(
+      readFile(
+        resolve(repoRoot, ".github/workflows/pr-description-lint.yml"),
+        "utf8",
+      ),
+    ).resolves.toEqual(
+      expect.not.stringContaining(
+        "body='${{ github.event.pull_request.body }}'",
+      ),
+    );
     await expect(
       readFile(resolve(repoRoot, ".codex/skills/push/SKILL.md"), "utf8"),
     ).resolves.toEqual(expect.not.stringContaining("scripts/publish-pr.mjs"));
