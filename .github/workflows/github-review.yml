@@ -38,6 +38,7 @@ jobs:
         uses: actions/checkout@v5
         with:
           ref: ${{ steps.meta.outputs.head_sha }}
+          fetch-depth: 0
 
       - name: Set up Node
         uses: actions/setup-node@v5
@@ -66,21 +67,37 @@ jobs:
           pr_title=$(printf '%s' "$pr_json" | jq -r '.title // empty')
           pr_body=$(printf '%s' "$pr_json" | jq -r '.body // ""')
           pr_branch=$(printf '%s' "$pr_json" | jq -r '.head.ref // empty')
+          pr_base_branch=$(printf '%s' "$pr_json" | jq -r '.base.ref // empty')
+          pr_base_sha=$(printf '%s' "$pr_json" | jq -r '.base.sha // empty')
           pr_author=$(printf '%s' "$pr_json" | jq -r '.user.login // empty')
 
-          if [ -z "$pr_title" ] || [ -z "$pr_branch" ] || [ -z "$pr_author" ]; then
+          if [ -z "$pr_title" ] || [ -z "$pr_branch" ] || [ -z "$pr_base_branch" ] || [ -z "$pr_base_sha" ] || [ -z "$pr_author" ]; then
             echo "Missing PR details from GitHub API." >&2
             exit 1
           fi
 
           echo "pr_title=$pr_title" >> "$GITHUB_OUTPUT"
           echo "pr_branch=$pr_branch" >> "$GITHUB_OUTPUT"
+          echo "pr_base_branch=$pr_base_branch" >> "$GITHUB_OUTPUT"
+          echo "pr_base_sha=$pr_base_sha" >> "$GITHUB_OUTPUT"
           echo "pr_author=$pr_author" >> "$GITHUB_OUTPUT"
           {
             echo "pr_body<<EOF"
             printf '%s\n' "$pr_body"
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
+
+      - name: Generate PR diff context
+        shell: bash
+        env:
+          HEAD_SHA: ${{ steps.meta.outputs.head_sha }}
+          PR_BASE_BRANCH: ${{ steps.pr-details.outputs.pr_base_branch }}
+          PR_BASE_SHA: ${{ steps.pr-details.outputs.pr_base_sha }}
+        run: |
+          mkdir -p .claude-review
+          git fetch --no-tags --depth=1 origin "$PR_BASE_BRANCH"
+          git diff --name-status "$PR_BASE_SHA...$HEAD_SHA" > .claude-review/changed-files.txt
+          git diff --stat "$PR_BASE_SHA...$HEAD_SHA" > .claude-review/diff-stat.txt
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v6
@@ -101,7 +118,8 @@ jobs:
         with:
           github_token: ${{ steps.app-token.outputs.token }}
           use_bedrock: "true"
-          claude_args: "--model global.anthropic.claude-sonnet-4-6 --max-turns 10 --allowedTools Bash(gh pr review:*)"
+          claude_args: "--model global.anthropic.claude-sonnet-4-6 --max-turns 10"
+          allowed_tools: "View,GlobTool,GrepTool,Write,Bash(gh pr review:*)"
           show_full_output: true
           prompt: |
             Review pull request #${{ steps.meta.outputs.pr_number }} in
@@ -112,20 +130,30 @@ jobs:
             PR title: ${{ steps.pr-details.outputs.pr_title }}
             PR author: ${{ steps.pr-details.outputs.pr_author }}
             PR branch: ${{ steps.pr-details.outputs.pr_branch }}
+            PR base branch: ${{ steps.pr-details.outputs.pr_base_branch }}
+            PR base SHA: ${{ steps.pr-details.outputs.pr_base_sha }}
             PR description:
             ${{ steps.pr-details.outputs.pr_body }}
+            Changed files manifest: `.claude-review/changed-files.txt`
+            Diff stat summary: `.claude-review/diff-stat.txt`
 
             The repository is already checked out at the PR head commit.
             Do not use Bash, gh, git, or other shell commands to discover pull
             request metadata. Do not try to confirm the PR number, title,
             body, author, or branch through shell commands or extra API
-            lookups. Treat the prompt values as the source of truth and
-            review the checked-out changes directly.
+            lookups. Treat the prompt values as the source of truth. Use
+            `.claude-review/changed-files.txt` and
+            `.claude-review/diff-stat.txt` to determine what this pull
+            request changes, and treat those files as the source of truth for
+            PR scope. Do not infer PR scope from all files present in the
+            checked-out repository; files not listed there are baseline
+            context unless needed to understand a changed file.
             If you post a review, use only a single direct `gh pr review`
             command. Do not use pipes, redirects, subshells, command
             substitution, `cat`, or heredocs in Bash commands. If you need a
-            long review body, write it to a temporary file with file tools
-            first, then call `gh pr review ... --body-file <path>`.
+            long review body, write exactly one repo-local file named
+            `pr-review.md` with file tools first, then call
+            `gh pr review ... --body-file pr-review.md`.
 
             Post review findings directly on the pull request. Focus on
             actionable issues that should block merge. Do not require an

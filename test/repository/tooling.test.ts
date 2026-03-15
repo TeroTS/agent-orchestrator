@@ -100,6 +100,12 @@ describe("repository tooling", () => {
         resolve(repoRoot, ".github/workflows/github-review.yml"),
         "utf8",
       ),
+    ).resolves.toEqual(expect.stringContaining("fetch-depth: 0"));
+    await expect(
+      readFile(
+        resolve(repoRoot, ".github/workflows/github-review.yml"),
+        "utf8",
+      ),
     ).resolves.toEqual(expect.stringContaining("prompt: |"));
     await expect(
       readFile(
@@ -107,7 +113,9 @@ describe("repository tooling", () => {
         "utf8",
       ),
     ).resolves.toEqual(
-      expect.stringContaining("--allowedTools Bash(gh pr review:*)"),
+      expect.stringContaining(
+        'allowed_tools: "View,GlobTool,GrepTool,Write,Bash(gh pr review:*)"',
+      ),
     );
     await expect(
       readFile(
@@ -138,7 +146,33 @@ describe("repository tooling", () => {
         resolve(repoRoot, ".github/workflows/github-review.yml"),
         "utf8",
       ),
+    ).resolves.toEqual(expect.stringContaining("PR base branch:"));
+    await expect(
+      readFile(
+        resolve(repoRoot, ".github/workflows/github-review.yml"),
+        "utf8",
+      ),
+    ).resolves.toEqual(expect.stringContaining("PR base SHA:"));
+    await expect(
+      readFile(
+        resolve(repoRoot, ".github/workflows/github-review.yml"),
+        "utf8",
+      ),
     ).resolves.toEqual(expect.stringContaining("PR description:"));
+    await expect(
+      readFile(
+        resolve(repoRoot, ".github/workflows/github-review.yml"),
+        "utf8",
+      ),
+    ).resolves.toEqual(
+      expect.stringContaining(".claude-review/changed-files.txt"),
+    );
+    await expect(
+      readFile(
+        resolve(repoRoot, ".github/workflows/github-review.yml"),
+        "utf8",
+      ),
+    ).resolves.toEqual(expect.stringContaining(".claude-review/diff-stat.txt"));
     await expect(
       readFile(
         resolve(repoRoot, ".github/workflows/github-review.yml"),
@@ -179,6 +213,16 @@ describe("repository tooling", () => {
         "utf8",
       ),
     ).resolves.toEqual(
+      expect.stringContaining(
+        "and treat those files as the source of truth for",
+      ),
+    );
+    await expect(
+      readFile(
+        resolve(repoRoot, ".github/workflows/github-review.yml"),
+        "utf8",
+      ),
+    ).resolves.toEqual(
       expect.stringContaining("use only a single direct `gh pr review`"),
     );
     await expect(
@@ -197,9 +241,15 @@ describe("repository tooling", () => {
         "utf8",
       ),
     ).resolves.toEqual(
-      expect.stringContaining(
-        "then call `gh pr review ... --body-file <path>`.",
+      expect.stringContaining("write exactly one repo-local file named"),
+    );
+    await expect(
+      readFile(
+        resolve(repoRoot, ".github/workflows/github-review.yml"),
+        "utf8",
       ),
+    ).resolves.toEqual(
+      expect.stringContaining("`gh pr review ... --body-file pr-review.md`."),
     );
     await expect(
       readFile(
