@@ -256,34 +256,30 @@ describe("LinearTrackerClient", () => {
     const fetchMock = vi.fn().mockResolvedValue(
       jsonResponse({
         data: {
-          issues: {
-            nodes: [
-              {
-                id: "issue-1",
-                identifier: "OWN-18",
-                title: "Refresh state",
-                description: "Investigate reviewer feedback.",
-                priority: 2,
-                branchName: "own-18-fix",
-                url: "https://linear.app/demo/issue/OWN-18",
-                createdAt: "2026-03-01T10:00:00.000Z",
-                updatedAt: "2026-03-01T12:00:00.000Z",
-                state: { name: "In Review" },
-                comments: {
-                  nodes: [
-                    {
-                      id: "comment-1",
-                      body: "Workflow Run: 123",
-                      url: "https://linear.app/demo/comment/comment-1",
-                      createdAt: "2026-03-14T12:00:00.000Z",
-                      user: {
-                        name: "Claude Reviewer",
-                      },
-                    },
-                  ],
+          issue: {
+            id: "issue-1",
+            identifier: "OWN-18",
+            title: "Refresh state",
+            description: "Investigate reviewer feedback.",
+            priority: 2,
+            branchName: "own-18-fix",
+            url: "https://linear.app/demo/issue/OWN-18",
+            createdAt: "2026-03-01T10:00:00.000Z",
+            updatedAt: "2026-03-01T12:00:00.000Z",
+            state: { name: "In Review" },
+            comments: {
+              nodes: [
+                {
+                  id: "comment-1",
+                  body: "Workflow Run: 123",
+                  url: "https://linear.app/demo/comment/comment-1",
+                  createdAt: "2026-03-14T12:00:00.000Z",
+                  user: {
+                    name: "Claude Reviewer",
+                  },
                 },
-              },
-            ],
+              ],
+            },
           },
         },
       }),
@@ -300,8 +296,9 @@ describe("LinearTrackerClient", () => {
 
     const requestBody = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
     expect(requestBody.query).toContain("IssueContextByIdentifier");
+    expect(requestBody.query).toContain("issue(id: $id)");
     expect(requestBody.variables).toEqual({
-      identifier: "OWN-18",
+      id: "OWN-18",
       commentsFirst: 20,
     });
     expect(issue).toMatchObject({
@@ -327,9 +324,7 @@ describe("LinearTrackerClient", () => {
       fetchFn: vi.fn().mockResolvedValue(
         jsonResponse({
           data: {
-            issues: {
-              nodes: [],
-            },
+            issue: null,
           },
         }),
       ),
@@ -339,6 +334,36 @@ describe("LinearTrackerClient", () => {
       client.fetchIssueContextByIdentifier("OWN-18"),
     ).rejects.toMatchObject({
       code: "linear_unknown_payload",
+    });
+  });
+
+  it("includes GraphQL error details from HTTP 400 responses", async () => {
+    const client = new LinearTrackerClient({
+      endpoint: "https://api.linear.app/graphql",
+      apiKey: "linear-token",
+      projectSlug: "demo-project",
+      fetchFn: vi.fn().mockResolvedValue(
+        jsonResponse(
+          {
+            errors: [
+              {
+                message:
+                  "Field 'identifier' is not defined by type 'IssueFilter'.",
+              },
+            ],
+          },
+          400,
+        ),
+      ),
+    });
+
+    const lookupPromise = client.fetchIssueContextByIdentifier("OWN-18");
+
+    await expect(lookupPromise).rejects.toMatchObject({
+      code: "linear_api_status",
+      message: expect.stringMatching(
+        /IssueContextByIdentifier[\s\S]*Field 'identifier' is not defined by type 'IssueFilter'\./,
+      ),
     });
   });
 

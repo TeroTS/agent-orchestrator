@@ -180,12 +180,12 @@ export class LinearTrackerClient {
       await this.request<LinearIssueContextByIdentifierPayload>({
         query: issueContextByIdentifierQuery,
         variables: {
-          identifier: issueIdentifier,
+          id: issueIdentifier,
           commentsFirst: 20,
         },
       });
 
-    const issue = payload.data?.issues?.nodes?.[0];
+    const issue = payload.data?.issue;
     if (!issue?.id || !issue.identifier) {
       throw new TrackerError(
         "linear_unknown_payload",
@@ -337,9 +337,12 @@ export class LinearTrackerClient {
       const operationDetail = operationName
         ? ` while executing ${operationName}`
         : "";
+      const graphqlErrorDetail = extractGraphQLErrorDetail(responseText);
 
       if (!response.ok) {
-        const errorMessage = `Linear responded with HTTP ${response.status}${operationDetail}.`;
+        const errorMessage = graphqlErrorDetail
+          ? `Linear responded with HTTP ${response.status}${operationDetail}. GraphQL errors: ${graphqlErrorDetail}`
+          : `Linear responded with HTTP ${response.status}${operationDetail}.`;
         this.logger.debug("linear api request failed", {
           duration_ms: durationMs,
           endpoint: this.endpoint,
@@ -443,6 +446,29 @@ function previewForLog(value: string): string | null {
   return `${trimmed.slice(0, MAX_LOG_PREVIEW_LENGTH)}...(truncated)`;
 }
 
+function extractGraphQLErrorDetail(responseText: string): string | null {
+  const trimmed = responseText.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  try {
+    const payload = JSON.parse(trimmed) as GraphQLResponse<unknown>;
+    if (!Array.isArray(payload.errors) || payload.errors.length === 0) {
+      return null;
+    }
+
+    const messages = payload.errors
+      .map((error) => error?.message?.trim())
+      .filter((message): message is string => typeof message === "string")
+      .filter((message) => message.length > 0);
+
+    return messages.length > 0 ? messages.join("; ") : null;
+  } catch {
+    return null;
+  }
+}
+
 interface LinearCandidateIssuesPayload {
   issues: {
     pageInfo: {
@@ -487,9 +513,7 @@ interface LinearIssueContextPayload {
 }
 
 interface LinearIssueContextByIdentifierPayload {
-  issues?: {
-    nodes?: LinearIssueNode[];
-  };
+  issue?: LinearIssueNode | null;
 }
 
 interface LinearCommentCreatePayload {
@@ -736,47 +760,45 @@ const issueContextByIdQuery = `
 `;
 
 const issueContextByIdentifierQuery = `
-  query IssueContextByIdentifier($identifier: String!, $commentsFirst: Int!) {
-    issues(filter: { identifier: { eq: $identifier } }, first: 1) {
-      nodes {
-        id
-        identifier
-        title
-        description
-        priority
-        branchName
-        url
-        createdAt
-        updatedAt
-        state {
+  query IssueContextByIdentifier($id: String!, $commentsFirst: Int!) {
+    issue(id: $id) {
+      id
+      identifier
+      title
+      description
+      priority
+      branchName
+      url
+      createdAt
+      updatedAt
+      state {
+        name
+      }
+      labels {
+        nodes {
           name
         }
-        labels {
-          nodes {
-            name
-          }
-        }
-        inverseRelations {
-          nodes {
-            type
-            issue {
-              id
-              identifier
-              state {
-                name
-              }
-            }
-          }
-        }
-        comments(first: $commentsFirst) {
-          nodes {
+      }
+      inverseRelations {
+        nodes {
+          type
+          issue {
             id
-            body
-            url
-            createdAt
-            user {
+            identifier
+            state {
               name
             }
+          }
+        }
+      }
+      comments(first: $commentsFirst) {
+        nodes {
+          id
+          body
+          url
+          createdAt
+          user {
+            name
           }
         }
       }
