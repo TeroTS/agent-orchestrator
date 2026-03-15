@@ -1,4 +1,4 @@
-import { access } from "node:fs/promises";
+import { access, readFile } from "node:fs/promises";
 import { constants } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -17,6 +17,20 @@ async function exists(path: string): Promise<boolean> {
 }
 
 describe("repository source layout", () => {
+  it("ships the required repository-root validation files with fixed contents", async () => {
+    const expectedFiles = [
+      ["testing_0.txt", "OWN-41 repository-root validation file 0.\n"],
+      ["testing_1.txt", "OWN-41 repository-root validation file 1.\n"],
+      ["testing_2.txt", "OWN-41 repository-root validation file 2.\n"],
+    ] as const;
+
+    for (const [relativePath, expectedContent] of expectedFiles) {
+      await expect(
+        readFile(resolve(repoRoot, relativePath), "utf8"),
+      ).resolves.toBe(expectedContent);
+    }
+  });
+
   it("groups related runtime modules under feature directories", async () => {
     const expectedFiles = [
       "src/app/cli.ts",
