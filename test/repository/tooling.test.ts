@@ -294,7 +294,7 @@ describe("repository tooling", () => {
       ),
     ).resolves.toEqual(
       expect.stringContaining(
-        "npm run build\n          node scripts/github-review-sync.mjs",
+        "./scripts/setup\n          npm run build\n          node scripts/github-review-sync.mjs",
       ),
     );
     await expect(

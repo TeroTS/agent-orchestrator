@@ -170,6 +170,7 @@ jobs:
           REVIEW_STARTED_AT: ${{ steps.review-start.outputs.started_at }}
           LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
         run: |
+          ./scripts/setup
           npm run build
           node scripts/github-review-sync.mjs
 
