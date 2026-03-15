@@ -114,9 +114,15 @@ describe("repository tooling", () => {
       ),
     ).resolves.toEqual(
       expect.stringContaining(
-        'allowed_tools: "View,GlobTool,GrepTool,Write,Bash(gh pr review:*)"',
+        '--allowedTools "View,GlobTool,GrepTool,Write,Bash(gh pr review:*)"',
       ),
     );
+    await expect(
+      readFile(
+        resolve(repoRoot, ".github/workflows/github-review.yml"),
+        "utf8",
+      ),
+    ).resolves.toEqual(expect.not.stringContaining("allowed_tools:"));
     await expect(
       readFile(
         resolve(repoRoot, ".github/workflows/github-review.yml"),

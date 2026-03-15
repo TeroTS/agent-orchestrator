@@ -118,8 +118,10 @@ jobs:
         with:
           github_token: ${{ steps.app-token.outputs.token }}
           use_bedrock: "true"
-          claude_args: "--model global.anthropic.claude-sonnet-4-6 --max-turns 10"
-          allowed_tools: "View,GlobTool,GrepTool,Write,Bash(gh pr review:*)"
+          claude_args: >-
+            --model global.anthropic.claude-sonnet-4-6
+            --max-turns 10
+            --allowedTools "View,GlobTool,GrepTool,Write,Bash(gh pr review:*)"
           show_full_output: true
           prompt: |
             Review pull request #${{ steps.meta.outputs.pr_number }} in
