@@ -24,6 +24,10 @@ export interface OrchestrationIssue {
   labels: string[];
   blockedBy: BlockerRef[];
   comments?: IssueComment[];
+  githubReviewSummary?: string | null;
+  githubReviewRound?: number | null;
+  githubReviewUrl?: string | null;
+  githubReviewComments?: IssueComment[];
   createdAt: Date | null;
   updatedAt: Date | null;
 }

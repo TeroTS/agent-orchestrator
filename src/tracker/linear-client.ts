@@ -22,6 +22,10 @@ export interface LinearIssue {
   labels: string[];
   blockedBy: LinearBlockerRef[];
   comments: IssueComment[];
+  githubReviewSummary?: string | null;
+  githubReviewRound?: number | null;
+  githubReviewUrl?: string | null;
+  githubReviewComments?: IssueComment[];
   createdAt: Date | null;
   updatedAt: Date | null;
 }
@@ -610,6 +614,10 @@ function normalizeIssue(node: LinearIssueNode): LinearIssue {
         authorName: comment.user?.name ?? null,
         createdAt: parseDate(comment.createdAt),
       })),
+    githubReviewSummary: null,
+    githubReviewRound: null,
+    githubReviewUrl: null,
+    githubReviewComments: [],
     createdAt: parseDate(node.createdAt),
     updatedAt: parseDate(node.updatedAt),
   };

@@ -84,6 +84,22 @@ Recent ticket comments:
   No recent comments.
   {% endif %}
 
+Latest GitHub review feedback:
+{% if issue.githubReviewComments.size > 0 or issue.githubReviewSummary %}
+{% if issue.githubReviewRound %}- Review round: {{ issue.githubReviewRound }}{% if issue.githubReviewUrl %} ({{ issue.githubReviewUrl }}){% endif %}
+{% elseif issue.githubReviewUrl %}- Review URL: {{ issue.githubReviewUrl }}
+{% endif %}
+{% if issue.githubReviewSummary %}
+
+- Summary: {{ issue.githubReviewSummary }}
+  {% endif %}
+  {% for comment in issue.githubReviewComments %}
+- {% if comment.createdAt %}[{{ comment.createdAt }}] {% endif %}{% if comment.authorName %}{{ comment.authorName }}{% else %}Unknown author{% endif %}: {{ comment.body }}{% if comment.url %} ({{ comment.url }}){% endif %}
+  {% endfor %}
+  {% else %}
+  No recent GitHub review feedback.
+  {% endif %}
+
 Execution rules:
 
 1. Work only inside the provided workspace for this ticket.
@@ -101,12 +117,13 @@ Execution rules:
 
 - The current Linear ticket id is already provided in this prompt as `Ticket ID`. Reuse that provided id for tracker operations that need the current ticket UUID.
 - Do not use `linear_graphql` just to look up the current ticket id when the provided `Ticket ID` is already sufficient.
-- To fetch a Linear ticket by ticket identifier such as `OWN-15`, query the `issues` connection with an identifier filter, for example:
-  `query IssueByIdentifier($identifier: String!) { issues(filter: { identifier: { eq: $identifier } }) { nodes { id identifier title } } }`
-- Use the returned ticket `id` for follow-up operations.
+- To fetch a Linear ticket by ticket identifier such as `OWN-15`, use the documented issue lookup form:
+  `query IssueByIdentifier($id: String!) { issue(id: $id) { id identifier title } }`
+- Example identifier lookup: `issue(id: "OWN-15")`
+- Pass the ticket identifier such as `OWN-15` as the query variable `id`.
+- Use the returned ticket `id` for follow-up operations that need the current Linear issue UUID.
 - Do not use `issueV2(...)`.
 - Do not use `issue(identifier: ...)`.
-- `issue(id: ...)` is only for a known Linear issue id / UUID, not for identifier-based lookup.
 
 13. When the implementation work is complete and validation passes, call `complete_ticket_delivery` exactly once with a concise summary of what changed and the targeted validation checks you ran beyond `./scripts/verify`.
 14. Do not call `linear_add_issue_comment` directly for normal ticket completion.

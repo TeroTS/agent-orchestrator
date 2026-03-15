@@ -1,9 +1,15 @@
+import { execFile } from "node:child_process";
 import {
   CodexAppServerClient,
   type CodexRuntimeEvent,
   type DeliveryCommandRunner,
 } from "./app-server.js";
-import type { OrchestrationIssue } from "../orchestrator/rules.js";
+import { promisify } from "node:util";
+
+import type {
+  IssueComment,
+  OrchestrationIssue,
+} from "../orchestrator/rules.js";
 import {
   createStructuredLogger,
   type StructuredLogger,
@@ -24,6 +30,15 @@ export interface AgentRunnerOptions {
   issueStateRefresher: (issueIds: string[]) => Promise<OrchestrationIssue[]>;
   issueContextFetcher?: (issueId: string) => Promise<OrchestrationIssue>;
   linearFetchFn?: typeof fetch;
+  githubReviewFeedbackFetcher?: (input: {
+    issue: OrchestrationIssue;
+    workspacePath: string;
+  }) => Promise<{
+    reviewRound: number | null;
+    reviewUrl: string | null;
+    summary: string | null;
+    comments: IssueComment[];
+  } | null>;
   deliveryCommandRunner?: DeliveryCommandRunner;
   templateReadFile?: typeof import("node:fs/promises").readFile;
   logger?: StructuredLogger;
@@ -38,6 +53,9 @@ export class AgentRunner {
     | ((issueId: string) => Promise<OrchestrationIssue>)
     | undefined;
   private readonly linearFetchFn: typeof fetch | undefined;
+  private readonly githubReviewFeedbackFetcher:
+    | AgentRunnerOptions["githubReviewFeedbackFetcher"]
+    | undefined;
   private readonly deliveryCommandRunner:
     | AgentRunnerOptions["deliveryCommandRunner"]
     | undefined;
@@ -51,6 +69,7 @@ export class AgentRunner {
     this.issueStateRefresher = options.issueStateRefresher;
     this.issueContextFetcher = options.issueContextFetcher;
     this.linearFetchFn = options.linearFetchFn;
+    this.githubReviewFeedbackFetcher = options.githubReviewFeedbackFetcher;
     this.deliveryCommandRunner = options.deliveryCommandRunner;
     this.templateReadFile = options.templateReadFile;
     this.logger = options.logger ?? createStructuredLogger();
@@ -151,10 +170,18 @@ export class AgentRunner {
       const issueContext =
         (await this.issueContextFetcher?.(issue.id).catch(() => issue)) ??
         issue;
+      const promptIssue = await this.enrichIssueContextWithGithubReviewFeedback(
+        issueContext,
+        workspace.path,
+      );
       const prompt = await renderPromptTemplate(this.workflowDefinition, {
         issue: {
-          ...issueContext,
-          comments: issueContext.comments ?? [],
+          ...promptIssue,
+          comments: promptIssue.comments ?? [],
+          githubReviewSummary: promptIssue.githubReviewSummary ?? null,
+          githubReviewRound: promptIssue.githubReviewRound ?? null,
+          githubReviewUrl: promptIssue.githubReviewUrl ?? null,
+          githubReviewComments: promptIssue.githubReviewComments ?? [],
         },
         attempt: input.attempt,
       });
@@ -227,8 +254,227 @@ export class AgentRunner {
       });
     }
   }
+
+  private async enrichIssueContextWithGithubReviewFeedback(
+    issue: OrchestrationIssue,
+    workspacePath: string,
+  ): Promise<OrchestrationIssue> {
+    const baseIssue: OrchestrationIssue = {
+      ...issue,
+      comments: issue.comments ?? [],
+      githubReviewSummary: issue.githubReviewSummary ?? null,
+      githubReviewRound: issue.githubReviewRound ?? null,
+      githubReviewUrl: issue.githubReviewUrl ?? null,
+      githubReviewComments: issue.githubReviewComments ?? [],
+    };
+
+    if (issue.state.toLowerCase() !== "rework") {
+      return baseIssue;
+    }
+
+    const fetcher =
+      this.githubReviewFeedbackFetcher ?? fetchGithubReviewFeedback;
+
+    try {
+      const feedback = await fetcher({
+        issue: baseIssue,
+        workspacePath,
+      });
+      if (!feedback) {
+        return baseIssue;
+      }
+
+      return {
+        ...baseIssue,
+        githubReviewSummary: feedback.summary,
+        githubReviewRound: feedback.reviewRound,
+        githubReviewUrl: feedback.reviewUrl,
+        githubReviewComments: feedback.comments,
+      };
+    } catch (error) {
+      this.logger.warn("github review feedback fetch failed", {
+        issue_id: issue.id,
+        issue_identifier: issue.identifier,
+        reason: error instanceof Error ? error.message : String(error),
+      });
+      return baseIssue;
+    }
+  }
 }
 
 function containsGitHubPullRequestUrl(body: string): boolean {
   return /https:\/\/github\.com\/[^/\s]+\/[^/\s]+\/pull\/\d+\S*/i.test(body);
+}
+
+const execFileAsync = promisify(execFile);
+
+async function fetchGithubReviewFeedback(input: {
+  issue: OrchestrationIssue;
+  workspacePath: string;
+}): Promise<{
+  reviewRound: number | null;
+  reviewUrl: string | null;
+  summary: string | null;
+  comments: IssueComment[];
+} | null> {
+  if (!input.issue.branchName) {
+    return null;
+  }
+
+  const repo = (
+    await runGhCommand(
+      ["repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"],
+      input.workspacePath,
+    )
+  ).trim();
+  if (!repo) {
+    return null;
+  }
+
+  const pullRequests = JSON.parse(
+    await runGhCommand(
+      [
+        "pr",
+        "list",
+        "--repo",
+        repo,
+        "--head",
+        input.issue.branchName,
+        "--state",
+        "open",
+        "--json",
+        "number,url",
+      ],
+      input.workspacePath,
+    ),
+  ) as Array<{ number?: number; url?: string }>;
+  if (!Array.isArray(pullRequests) || pullRequests.length === 0) {
+    return null;
+  }
+  if (pullRequests.length > 1) {
+    throw new Error("multiple open pull requests for branch");
+  }
+
+  const pullRequest = pullRequests[0];
+  if (!pullRequest?.number) {
+    return null;
+  }
+
+  const reviews = JSON.parse(
+    await runGhCommand(
+      ["api", `repos/${repo}/pulls/${pullRequest.number}/reviews?per_page=100`],
+      input.workspacePath,
+    ),
+  ) as Array<{
+    id?: number;
+    state?: string;
+    body?: string | null;
+    submitted_at?: string | null;
+  }>;
+  const blockingReviews = (Array.isArray(reviews) ? reviews : []).filter(
+    (review) => review?.state === "CHANGES_REQUESTED",
+  );
+  if (blockingReviews.length === 0) {
+    return null;
+  }
+
+  const latestBlockingReview = [...blockingReviews].sort((left, right) =>
+    String(left?.submitted_at ?? "").localeCompare(
+      String(right?.submitted_at ?? ""),
+    ),
+  )[blockingReviews.length - 1];
+  const latestReviewId = latestBlockingReview?.id;
+  const latestReviewTimestamp = Date.parse(
+    String(latestBlockingReview?.submitted_at ?? ""),
+  );
+
+  const reviewComments = JSON.parse(
+    await runGhCommand(
+      [
+        "api",
+        `repos/${repo}/pulls/${pullRequest.number}/comments?per_page=100`,
+      ],
+      input.workspacePath,
+    ),
+  ) as Array<{
+    id?: number;
+    body?: string | null;
+    path?: string | null;
+    line?: number | null;
+    original_line?: number | null;
+    html_url?: string | null;
+    created_at?: string | null;
+    pull_request_review_id?: number | null;
+    user?: { login?: string | null } | null;
+  }>;
+
+  const comments = (Array.isArray(reviewComments) ? reviewComments : [])
+    .filter((comment) => {
+      if (
+        latestReviewId != null &&
+        comment?.pull_request_review_id != null &&
+        comment.pull_request_review_id === latestReviewId
+      ) {
+        return true;
+      }
+
+      const createdAt = Date.parse(String(comment?.created_at ?? ""));
+      return (
+        !Number.isNaN(latestReviewTimestamp) &&
+        !Number.isNaN(createdAt) &&
+        createdAt >= latestReviewTimestamp
+      );
+    })
+    .map((comment): IssueComment | null => {
+      const location = [comment.path, comment.line ?? comment.original_line]
+        .filter(
+          (value) => value !== undefined && value !== null && value !== "",
+        )
+        .join(":");
+      const body = normalizePromptText(comment.body);
+      if (!comment.id || !body) {
+        return null;
+      }
+      return {
+        id: String(comment.id),
+        body: location ? `${location} ${body}` : body,
+        url: comment.html_url ?? null,
+        authorName: comment.user?.login ?? null,
+        createdAt: parsePromptDate(comment.created_at),
+      };
+    })
+    .filter((comment): comment is IssueComment => comment !== null);
+
+  return {
+    reviewRound: blockingReviews.length,
+    reviewUrl: pullRequest.url ?? null,
+    summary: normalizePromptText(latestBlockingReview?.body),
+    comments,
+  };
+}
+
+async function runGhCommand(args: string[], cwd: string): Promise<string> {
+  const result = await execFileAsync("gh", args, {
+    cwd,
+    encoding: "utf8",
+  });
+  return result.stdout;
+}
+
+function normalizePromptText(value: string | null | undefined): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const normalized = value.replace(/\s+/g, " ").trim();
+  return normalized ? normalized : null;
+}
+
+function parsePromptDate(value: string | null | undefined): Date | null {
+  if (!value) {
+    return null;
+  }
+
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
 }

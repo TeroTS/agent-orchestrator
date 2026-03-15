@@ -73,7 +73,10 @@ describe("repository tooling", () => {
     ).resolves.toEqual(expect.stringContaining("./scripts/verify"));
     await expect(
       readFile(resolve(repoRoot, ".github/pull_request_template.md"), "utf8"),
-    ).resolves.toEqual(expect.stringContaining("`./scripts/verify`"));
+    ).resolves.toEqual(expect.stringContaining("#### Context"));
+    await expect(
+      readFile(resolve(repoRoot, ".github/pull_request_template.md"), "utf8"),
+    ).resolves.toEqual(expect.stringContaining("#### Summary"));
     await expect(
       readFile(resolve(repoRoot, ".github/pull_request_template.md"), "utf8"),
     ).resolves.toEqual(expect.stringContaining("Linear Issue:"));
@@ -170,6 +173,30 @@ describe("repository tooling", () => {
         resolve(repoRoot, ".github/workflows/github-review.yml"),
         "utf8",
       ),
+    ).resolves.toEqual(expect.stringContaining("Linear issue identifier:"));
+    await expect(
+      readFile(
+        resolve(repoRoot, ".github/workflows/github-review.yml"),
+        "utf8",
+      ),
+    ).resolves.toEqual(expect.stringContaining("Linear issue title:"));
+    await expect(
+      readFile(
+        resolve(repoRoot, ".github/workflows/github-review.yml"),
+        "utf8",
+      ),
+    ).resolves.toEqual(expect.stringContaining("Linear issue state:"));
+    await expect(
+      readFile(
+        resolve(repoRoot, ".github/workflows/github-review.yml"),
+        "utf8",
+      ),
+    ).resolves.toEqual(expect.stringContaining("Linear issue description:"));
+    await expect(
+      readFile(
+        resolve(repoRoot, ".github/workflows/github-review.yml"),
+        "utf8",
+      ),
     ).resolves.toEqual(
       expect.stringContaining(".claude-review/changed-files.txt"),
     );
@@ -179,6 +206,66 @@ describe("repository tooling", () => {
         "utf8",
       ),
     ).resolves.toEqual(expect.stringContaining(".claude-review/diff-stat.txt"));
+    await expect(
+      readFile(
+        resolve(repoRoot, ".github/workflows/github-review.yml"),
+        "utf8",
+      ),
+    ).resolves.toEqual(
+      expect.stringContaining("Treat the Linear issue as intentional scope"),
+    );
+    await expect(
+      readFile(
+        resolve(repoRoot, ".github/workflows/github-review.yml"),
+        "utf8",
+      ),
+    ).resolves.toEqual(
+      expect.stringContaining(
+        "legitimacy, usefulness, or sanity of the task itself",
+      ),
+    );
+    await expect(
+      readFile(
+        resolve(repoRoot, ".github/workflows/github-review.yml"),
+        "utf8",
+      ),
+    ).resolves.toEqual(
+      expect.stringContaining(
+        "Review only implementation correctness, regressions, safety,",
+      ),
+    );
+    await expect(
+      readFile(
+        resolve(repoRoot, ".github/workflows/github-review.yml"),
+        "utf8",
+      ),
+    ).resolves.toEqual(
+      expect.stringContaining("completeness, and test coverage"),
+    );
+    await expect(
+      readFile(
+        resolve(repoRoot, ".github/workflows/github-review.yml"),
+        "utf8",
+      ),
+    ).resolves.toEqual(expect.stringContaining("#### Findings"));
+    await expect(
+      readFile(
+        resolve(repoRoot, ".github/workflows/github-review.yml"),
+        "utf8",
+      ),
+    ).resolves.toEqual(expect.stringContaining("each bullet <= 100 chars"));
+    await expect(
+      readFile(
+        resolve(repoRoot, ".github/workflows/github-review.yml"),
+        "utf8",
+      ),
+    ).resolves.toEqual(expect.stringContaining("### Summary"));
+    await expect(
+      readFile(
+        resolve(repoRoot, ".github/workflows/github-review.yml"),
+        "utf8",
+      ),
+    ).resolves.toEqual(expect.stringContaining("summary <= 200 chars"));
     await expect(
       readFile(
         resolve(repoRoot, ".github/workflows/github-review.yml"),

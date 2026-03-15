@@ -5,8 +5,8 @@ import { fileURLToPath } from "node:url";
 
 const GITHUB_API_ROOT = "https://api.github.com";
 const LINEAR_API_ROOT = "https://api.linear.app/graphql";
-const MAX_FEEDBACK_LINES = 20;
 const MAX_COMMENT_LENGTH = 8000;
+const MAX_REVIEW_ROUNDS = 3;
 
 const { LinearTrackerClient, TrackerError } = await loadTrackerModule();
 
@@ -24,19 +24,18 @@ export function parseLinearIssueIdentifier(body) {
 export function buildLinearReviewComment({
   prUrl,
   workflowRunId,
-  feedbackLines,
+  reviewRound,
+  reviewLimit,
+  limitReached = false,
 }) {
-  const lines =
-    feedbackLines.length > 0
-      ? feedbackLines
-      : ["Blocking review failed. Inspect the PR review comments for details."];
   const body = [
-    "GitHub Review Feedback",
+    "GitHub Review Status",
     `Workflow Run: ${workflowRunId}`,
     `PR: ${prUrl}`,
-    "",
-    "Summary:",
-    ...lines.map((line) => `- ${line}`),
+    `Review Round: ${reviewRound}/${reviewLimit}`,
+    limitReached
+      ? "Automated review limit reached. Issue remains in In Review. See GitHub review for details."
+      : "Blocking GitHub review posted. See GitHub review for details.",
   ].join("\n");
 
   return body.length <= MAX_COMMENT_LENGTH
@@ -49,6 +48,12 @@ export function isBlockingReviewState(reviewState) {
     typeof reviewState === "string" &&
     reviewState.toUpperCase() === "CHANGES_REQUESTED"
   );
+}
+
+export function countBlockingReviewCycles(reviews) {
+  return (Array.isArray(reviews) ? reviews : []).filter((review) =>
+    isBlockingReviewState(review?.state),
+  ).length;
 }
 
 export function formatSyncError(error) {
@@ -75,48 +80,6 @@ async function loadTrackerModule() {
   } catch {
     return import("../dist/src/tracker/linear-client.js");
   }
-}
-
-function collectFeedbackLines({ reviews, reviewComments, since }) {
-  const sinceEpoch = Date.parse(since);
-  const lines = [];
-
-  for (const review of reviews) {
-    const submittedAt = Date.parse(review.submitted_at ?? "");
-    const body = normalizeText(review.body);
-    if (
-      !Number.isNaN(sinceEpoch) &&
-      !Number.isNaN(submittedAt) &&
-      submittedAt < sinceEpoch
-    ) {
-      continue;
-    }
-    if (body) {
-      lines.push(`Review body: ${body}`);
-    }
-  }
-
-  for (const comment of reviewComments) {
-    const createdAt = Date.parse(comment.created_at ?? "");
-    const body = normalizeText(comment.body);
-    if (
-      !Number.isNaN(sinceEpoch) &&
-      !Number.isNaN(createdAt) &&
-      createdAt < sinceEpoch
-    ) {
-      continue;
-    }
-    if (!body) {
-      continue;
-    }
-
-    const location = [comment.path, comment.line ?? comment.original_line]
-      .filter((value) => value !== undefined && value !== null && value !== "")
-      .join(":");
-    lines.push(location ? `${location} ${body}` : body);
-  }
-
-  return lines.slice(0, MAX_FEEDBACK_LINES);
 }
 
 function setGithubOutput(name, value) {
@@ -147,21 +110,12 @@ async function fetchGitHubJson(path, token) {
   return response.json();
 }
 
-function normalizeText(value) {
-  if (typeof value !== "string") {
-    return "";
-  }
-
-  return value.replace(/\s+/g, " ").trim();
-}
-
 async function main() {
   const githubToken = requiredEnv("GITHUB_TOKEN");
   const linearApiKey = requiredEnv("LINEAR_API_KEY");
   const repository =
     process.env.GITHUB_REPOSITORY ?? requiredEnv("GITHUB_REPOSITORY");
   const prNumber = Number(requiredEnv("PR_NUMBER"));
-  const reviewStartedAt = requiredEnv("REVIEW_STARTED_AT");
   const workflowRunId =
     process.env.GITHUB_RUN_ID ?? requiredEnv("GITHUB_RUN_ID");
 
@@ -180,16 +134,10 @@ async function main() {
     );
   }
 
-  const [reviews, reviewComments] = await Promise.all([
-    fetchGitHubJson(
-      `/repos/${repository}/pulls/${prNumber}/reviews?per_page=100`,
-      githubToken,
-    ),
-    fetchGitHubJson(
-      `/repos/${repository}/pulls/${prNumber}/comments?per_page=100`,
-      githubToken,
-    ),
-  ]);
+  const reviews = await fetchGitHubJson(
+    `/repos/${repository}/pulls/${prNumber}/reviews?per_page=100`,
+    githubToken,
+  );
 
   const blockingReviews = (Array.isArray(reviews) ? reviews : []).filter(
     (review) => isBlockingReviewState(review?.state),
@@ -199,17 +147,16 @@ async function main() {
     return;
   }
 
-  const feedbackLines = collectFeedbackLines({
-    reviews: blockingReviews,
-    reviewComments: Array.isArray(reviewComments) ? reviewComments : [],
-    since: reviewStartedAt,
-  });
+  const reviewRound = countBlockingReviewCycles(reviews);
+  const limitReached = reviewRound > MAX_REVIEW_ROUNDS;
   setGithubOutput("blocking_review", "true");
 
   const commentBody = buildLinearReviewComment({
     prUrl: pr.html_url,
     workflowRunId,
-    feedbackLines,
+    reviewRound,
+    reviewLimit: MAX_REVIEW_ROUNDS,
+    limitReached,
   });
 
   const linearClient = new LinearTrackerClient({
@@ -231,8 +178,8 @@ async function main() {
   }
 
   if (
-    typeof issue.state !== "string" ||
-    issue.state.toLowerCase() !== "rework"
+    !limitReached &&
+    (typeof issue.state !== "string" || issue.state.toLowerCase() !== "rework")
   ) {
     await linearClient.transitionIssueToState(issue.id, "Rework");
   }

@@ -2,23 +2,10 @@ Linear Issue: <!-- OWN-123 -->
 
 #### Context
 
-<!-- Why is this change needed? Length <= 240 chars -->
-
-#### TL;DR
-
-_<!-- A short description of what we are changing. Use simple language. Assume reader is not familiar with this code. Length <= 120 chars -->_
+<!-- Why is this change needed? Length <= 200 chars -->
 
 #### Summary
 
 - <!-- Details of the changes in bullet points -->
 - <!-- Keep them high level -->
-- <!-- Each item <= 120 chars -->
-
-#### Alternatives
-
-- <!-- What alternatives have been considered? Why not? -->
-
-#### Test Plan
-
-- [ ] `./scripts/verify`
-- [ ] <!-- Additional targeted checks (list below) -->
+- <!-- Each item <= 100 chars -->

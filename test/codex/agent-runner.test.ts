@@ -283,11 +283,11 @@ rl.on("line", async (line) => {
         makeIssue({
           id: "issue-1",
           identifier: "ABC-1",
-          state: "In Progress",
+          state: "Rework",
           comments: [
             {
               id: "comment-1",
-              body: "GitHub review: tighten the retry guard.",
+              body: "Linear status: see GitHub review for details.",
               url: "https://linear.app/demo/comment/comment-1",
               authorName: "Claude Reviewer",
               createdAt: new Date("2026-03-14T12:00:00.000Z"),
@@ -295,6 +295,20 @@ rl.on("line", async (line) => {
           ],
         }),
       ),
+      githubReviewFeedbackFetcher: vi.fn().mockResolvedValue({
+        reviewRound: 2,
+        reviewUrl: "https://github.com/example/repo/pull/123",
+        summary: "Not approved because retry handling still misses a guard.",
+        comments: [
+          {
+            id: "review-comment-1",
+            body: "Retry guard still misses the aborted-session branch.",
+            url: "https://github.com/example/repo/pull/123#discussion_r1",
+            authorName: "claude[bot]",
+            createdAt: new Date("2026-03-14T12:05:00.000Z"),
+          },
+        ],
+      }),
       linearFetchFn: mockLinearCommentFetch(),
     });
 
@@ -311,7 +325,107 @@ rl.on("line", async (line) => {
       .trim()
       .split("\n")
       .map((line) => JSON.parse(line));
-    expect(prompts[0]).toContain("GitHub review: tighten the retry guard.");
+    expect(prompts[0]).toContain(
+      "Linear status: see GitHub review for details.",
+    );
+    expect(prompts[0]).toContain(
+      "Not approved because retry handling still misses a guard.",
+    );
+    expect(prompts[0]).toContain(
+      "Retry guard still misses the aborted-session branch.",
+    );
+  });
+
+  it("does not fetch GitHub review feedback outside Rework runs", async () => {
+    const workspaceRoot = await mkdtemp(
+      join(tmpdir(), "agent-runner-workspace-"),
+    );
+    tempDirs.push(workspaceRoot);
+    const appServerDir = await mkdtemp(join(tmpdir(), "agent-runner-server-"));
+    tempDirs.push(appServerDir);
+    const promptLogPath = join(appServerDir, "prompts.log");
+    const scriptPath = join(appServerDir, "fake-app-server.mjs");
+    const githubReviewFeedbackFetcher = vi.fn();
+
+    await writeFile(
+      scriptPath,
+      `
+import { appendFile } from "node:fs/promises";
+import readline from "node:readline";
+
+const promptLogPath = process.env.PROMPT_LOG_PATH;
+const rl = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });
+
+function send(message) {
+  process.stdout.write(JSON.stringify(message) + "\\n");
+}
+
+rl.on("line", async (line) => {
+  const msg = JSON.parse(line);
+  if (msg.method === "initialize") {
+    send({ id: msg.id, result: { ok: true } });
+    return;
+  }
+  if (msg.method === "thread/start") {
+    send({ id: msg.id, result: { thread: { id: "thread-1" } } });
+    return;
+  }
+  if (msg.method === "turn/start") {
+    await appendFile(promptLogPath, JSON.stringify(msg.params.input[0].text) + "\\n", "utf8");
+    send({ id: msg.id, result: { turn: { id: "turn-1" } } });
+    send({
+      id: "tool-comment-1",
+      method: "item/tool/call",
+      params: {
+        tool: "linear_add_issue_comment",
+        callId: "call-comment-1",
+        threadId: "thread-1",
+        turnId: "turn-1",
+        arguments: {
+          issueId: "issue-1",
+          body: "Implemented the requested change and validated it. PR: https://github.com/example/repo/pull/123"
+        }
+      }
+    });
+    send({ method: "turn/completed", params: {} });
+  }
+});
+`,
+      "utf8",
+    );
+
+    const runner = new AgentRunner({
+      workflowDefinition: validWorkflowDefinition(
+        workspaceRoot,
+        `${process.execPath} ${scriptPath}`,
+        promptLogPath,
+      ),
+      issueStateRefresher: vi
+        .fn()
+        .mockResolvedValue([
+          makeIssue({ id: "issue-1", identifier: "ABC-1", state: "Done" }),
+        ]),
+      issueContextFetcher: vi.fn().mockResolvedValue(
+        makeIssue({
+          id: "issue-1",
+          identifier: "ABC-1",
+          state: "In Progress",
+        }),
+      ),
+      githubReviewFeedbackFetcher,
+      linearFetchFn: mockLinearCommentFetch(),
+    });
+
+    await runner.runAttempt({
+      issue: makeIssue({
+        id: "issue-1",
+        identifier: "ABC-1",
+        state: "In Progress",
+      }),
+      attempt: null,
+    });
+
+    expect(githubReviewFeedbackFetcher).not.toHaveBeenCalled();
   });
 
   it("logs run attempt lifecycle events", async () => {
@@ -937,7 +1051,7 @@ function validWorkflowDefinition(
       },
     },
     promptTemplate:
-      "You are working on {{ issue.identifier }} attempt {{ attempt }} {% for comment in issue.comments %}{{ comment.body }} {% endfor %}",
+      "You are working on {{ issue.identifier }} attempt {{ attempt }} {% for comment in issue.comments %}{{ comment.body }} {% endfor %} {% if issue.githubReviewSummary %}{{ issue.githubReviewSummary }}{% endif %} {% for comment in issue.githubReviewComments %}{{ comment.body }} {% endfor %}",
   };
 }
 
@@ -957,6 +1071,19 @@ function makeIssue(
     labels: overrides.labels ?? [],
     blockedBy: overrides.blockedBy ?? [],
     comments: overrides.comments ?? [],
+    githubReviewSummary:
+      "githubReviewSummary" in overrides
+        ? (overrides.githubReviewSummary ?? null)
+        : null,
+    githubReviewRound:
+      "githubReviewRound" in overrides
+        ? (overrides.githubReviewRound ?? null)
+        : null,
+    githubReviewUrl:
+      "githubReviewUrl" in overrides
+        ? (overrides.githubReviewUrl ?? null)
+        : null,
+    githubReviewComments: overrides.githubReviewComments ?? [],
     createdAt: overrides.createdAt ?? new Date("2026-03-01T10:00:00.000Z"),
     updatedAt: overrides.updatedAt ?? new Date("2026-03-01T10:00:00.000Z"),
   };

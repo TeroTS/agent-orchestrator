@@ -87,6 +87,85 @@ jobs:
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
 
+      - name: Fetch Linear issue summary
+        id: linear-issue
+        shell: bash
+        env:
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+          PR_BODY: ${{ steps.pr-details.outputs.pr_body }}
+        run: |
+          node --input-type=module <<'EOF'
+          import { appendFileSync } from "node:fs";
+
+          const outputPath = process.env.GITHUB_OUTPUT;
+          const prBody = process.env.PR_BODY ?? "";
+          const apiKey = process.env.LINEAR_API_KEY ?? "";
+          const match = /^Linear Issue:\s*([A-Z][A-Z0-9]*-[0-9]+)\s*$/m.exec(prBody.trim());
+
+          function writeOutput(key, value) {
+            if (!outputPath) {
+              return;
+            }
+            appendFileSync(outputPath, `${key}<<EOF\n${value}\nEOF\n`, "utf8");
+          }
+
+          writeOutput("issue_identifier", match?.[1] ?? "Unavailable");
+          writeOutput("issue_title", "Unavailable");
+          writeOutput("issue_state", "Unavailable");
+          writeOutput("issue_description", "Unavailable");
+
+          if (!match?.[1] || !apiKey) {
+            process.exit(0);
+          }
+
+          try {
+            const response = await fetch("https://api.linear.app/graphql", {
+              method: "POST",
+              headers: {
+                Authorization: apiKey,
+                "content-type": "application/json",
+              },
+              body: JSON.stringify({
+                query: `
+                  query ReviewerLinearIssueSummary($id: String!) {
+                    issue(id: $id) {
+                      identifier
+                      title
+                      description
+                      state {
+                        name
+                      }
+                    }
+                  }
+                `,
+                variables: {
+                  id: match[1],
+                },
+              }),
+            });
+
+            if (!response.ok) {
+              process.exit(0);
+            }
+
+            const payload = await response.json();
+            const issue = payload?.data?.issue;
+            if (!issue?.identifier) {
+              process.exit(0);
+            }
+
+            writeOutput("issue_identifier", issue.identifier);
+            writeOutput("issue_title", issue.title ?? "Unavailable");
+            writeOutput("issue_state", issue.state?.name ?? "Unavailable");
+            writeOutput(
+              "issue_description",
+              issue.description?.trim() || "Unavailable",
+            );
+          } catch {
+            process.exit(0);
+          }
+          EOF
+
       - name: Generate PR diff context
         shell: bash
         env:
@@ -136,6 +215,11 @@ jobs:
             PR base SHA: ${{ steps.pr-details.outputs.pr_base_sha }}
             PR description:
             ${{ steps.pr-details.outputs.pr_body }}
+            Linear issue identifier: ${{ steps.linear-issue.outputs.issue_identifier }}
+            Linear issue title: ${{ steps.linear-issue.outputs.issue_title }}
+            Linear issue state: ${{ steps.linear-issue.outputs.issue_state }}
+            Linear issue description:
+            ${{ steps.linear-issue.outputs.issue_description }}
             Changed files manifest: `.claude-review/changed-files.txt`
             Diff stat summary: `.claude-review/diff-stat.txt`
 
@@ -156,6 +240,18 @@ jobs:
             long review body, write exactly one repo-local file named
             `pr-review.md` with file tools first, then call
             `gh pr review ... --body-file pr-review.md`.
+            Treat the Linear issue as intentional scope; do not question the
+            legitimacy, usefulness, or sanity of the task itself.
+            Review only implementation correctness, regressions, safety,
+            completeness, and test coverage. Flag scope mismatch only when the
+            PR does not correctly implement the stated issue.
+            Structure the review body exactly like this:
+            #### Findings
+            - One finding per bullet
+            - each bullet <= 100 chars
+
+            ### Summary
+            approved or not approved, why; summary <= 200 chars
 
             Post review findings directly on the pull request. Focus on
             actionable issues that should block merge. Do not require an
@@ -167,7 +263,6 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
           PR_NUMBER: ${{ steps.meta.outputs.pr_number }}
-          REVIEW_STARTED_AT: ${{ steps.review-start.outputs.started_at }}
           LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
         run: |
           ./scripts/setup

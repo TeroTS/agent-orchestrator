@@ -30,6 +30,12 @@ describe("repository WORKFLOW.md", () => {
     expect(definition.promptTemplate).toContain(
       "{% for comment in issue.comments %}",
     );
+    expect(definition.promptTemplate).toContain(
+      "Latest GitHub review feedback:",
+    );
+    expect(definition.promptTemplate).toContain(
+      "{% if issue.githubReviewComments.size > 0 or issue.githubReviewSummary %}",
+    );
     expect(definition.promptTemplate).toContain("complete_ticket_delivery");
     expect(definition.promptTemplate).toContain(
       "Do not commit directly to `main`",
@@ -66,9 +72,7 @@ describe("repository WORKFLOW.md", () => {
       "gh pr view --json url -q .url",
     );
     expect(definition.promptTemplate).toContain("Linear Issue:");
-    expect(definition.promptTemplate).toContain(
-      "issues(filter: { identifier: { eq: $identifier } })",
-    );
+    expect(definition.promptTemplate).toContain('issue(id: "OWN-15")');
     expect(definition.promptTemplate).toContain(
       "Reuse that provided id for tracker operations",
     );
