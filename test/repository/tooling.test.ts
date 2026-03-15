@@ -106,6 +106,14 @@ describe("repository tooling", () => {
         resolve(repoRoot, ".github/workflows/github-review.yml"),
         "utf8",
       ),
+    ).resolves.toEqual(
+      expect.stringContaining("--allowedTools Bash(gh pr review:*)"),
+    );
+    await expect(
+      readFile(
+        resolve(repoRoot, ".github/workflows/github-review.yml"),
+        "utf8",
+      ),
     ).resolves.toEqual(expect.stringContaining("Review pull request #"));
     await expect(
       readFile(
@@ -164,6 +172,34 @@ describe("repository tooling", () => {
       ),
     ).resolves.toEqual(
       expect.stringContaining("Treat the prompt values as the source of truth"),
+    );
+    await expect(
+      readFile(
+        resolve(repoRoot, ".github/workflows/github-review.yml"),
+        "utf8",
+      ),
+    ).resolves.toEqual(
+      expect.stringContaining("use only a single direct `gh pr review`"),
+    );
+    await expect(
+      readFile(
+        resolve(repoRoot, ".github/workflows/github-review.yml"),
+        "utf8",
+      ),
+    ).resolves.toEqual(
+      expect.stringContaining(
+        "Do not use pipes, redirects, subshells, command",
+      ),
+    );
+    await expect(
+      readFile(
+        resolve(repoRoot, ".github/workflows/github-review.yml"),
+        "utf8",
+      ),
+    ).resolves.toEqual(
+      expect.stringContaining(
+        "then call `gh pr review ... --body-file <path>`.",
+      ),
     );
     await expect(
       readFile(
