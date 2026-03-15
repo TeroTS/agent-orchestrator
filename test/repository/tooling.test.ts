@@ -293,6 +293,16 @@ describe("repository tooling", () => {
         "utf8",
       ),
     ).resolves.toEqual(
+      expect.stringContaining(
+        "npm run build\n          node scripts/github-review-sync.mjs",
+      ),
+    );
+    await expect(
+      readFile(
+        resolve(repoRoot, ".github/workflows/github-review.yml"),
+        "utf8",
+      ),
+    ).resolves.toEqual(
       expect.not.stringContaining(
         "Sync blocking review feedback to Linear\n        if: steps.reviewer.outcome == 'failure'",
       ),

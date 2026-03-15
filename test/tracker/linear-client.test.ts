@@ -131,6 +131,18 @@ describe("LinearTrackerClient", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("requires a project slug only for project-scoped issue listing", async () => {
+    const client = new LinearTrackerClient({
+      endpoint: "https://api.linear.app/graphql",
+      apiKey: "linear-token",
+      fetchFn: vi.fn(),
+    });
+
+    await expect(client.fetchCandidateIssues(["Todo"])).rejects.toMatchObject({
+      code: "linear_project_slug_required",
+    });
+  });
+
   it("fetches minimal issue state snapshots by GraphQL issue ids", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       jsonResponse({
@@ -237,6 +249,96 @@ describe("LinearTrackerClient", () => {
           authorName: "Claude Reviewer",
         },
       ],
+    });
+  });
+
+  it("fetches full issue context by Linear identifier for review sync", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse({
+        data: {
+          issues: {
+            nodes: [
+              {
+                id: "issue-1",
+                identifier: "OWN-18",
+                title: "Refresh state",
+                description: "Investigate reviewer feedback.",
+                priority: 2,
+                branchName: "own-18-fix",
+                url: "https://linear.app/demo/issue/OWN-18",
+                createdAt: "2026-03-01T10:00:00.000Z",
+                updatedAt: "2026-03-01T12:00:00.000Z",
+                state: { name: "In Review" },
+                comments: {
+                  nodes: [
+                    {
+                      id: "comment-1",
+                      body: "Workflow Run: 123",
+                      url: "https://linear.app/demo/comment/comment-1",
+                      createdAt: "2026-03-14T12:00:00.000Z",
+                      user: {
+                        name: "Claude Reviewer",
+                      },
+                    },
+                  ],
+                },
+              },
+            ],
+          },
+        },
+      }),
+    );
+
+    const client = new LinearTrackerClient({
+      endpoint: "https://api.linear.app/graphql",
+      apiKey: "linear-token",
+      projectSlug: "demo-project",
+      fetchFn: fetchMock,
+    });
+
+    const issue = await client.fetchIssueContextByIdentifier("OWN-18");
+
+    const requestBody = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    expect(requestBody.query).toContain("IssueContextByIdentifier");
+    expect(requestBody.variables).toEqual({
+      identifier: "OWN-18",
+      commentsFirst: 20,
+    });
+    expect(issue).toMatchObject({
+      id: "issue-1",
+      identifier: "OWN-18",
+      state: "In Review",
+      comments: [
+        {
+          id: "comment-1",
+          body: "Workflow Run: 123",
+          url: "https://linear.app/demo/comment/comment-1",
+          authorName: "Claude Reviewer",
+        },
+      ],
+    });
+  });
+
+  it("fails with a typed error when issue lookup by identifier returns no issue", async () => {
+    const client = new LinearTrackerClient({
+      endpoint: "https://api.linear.app/graphql",
+      apiKey: "linear-token",
+      projectSlug: "demo-project",
+      fetchFn: vi.fn().mockResolvedValue(
+        jsonResponse({
+          data: {
+            issues: {
+              nodes: [],
+            },
+          },
+        }),
+      ),
+    });
+
+    await expect(
+      client.fetchIssueContextByIdentifier("OWN-18"),
+    ).rejects.toMatchObject({
+      code: "linear_unknown_payload",
     });
   });
 
@@ -436,6 +538,7 @@ describe("LinearTrackerClient", () => {
       statusClient.fetchCandidateIssues(["Todo"]),
     ).rejects.toMatchObject({
       code: "linear_api_status",
+      message: expect.stringContaining("CandidateIssues"),
     });
 
     const graphqlClient = new LinearTrackerClient({
@@ -451,6 +554,7 @@ describe("LinearTrackerClient", () => {
       graphqlClient.fetchCandidateIssues(["Todo"]),
     ).rejects.toMatchObject({
       code: "linear_graphql_errors",
+      message: expect.stringContaining("CandidateIssues"),
     });
 
     const malformedClient = new LinearTrackerClient({

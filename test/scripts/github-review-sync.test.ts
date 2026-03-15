@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 
+import { TrackerError } from "../../src/tracker/linear-client.js";
+
 const reviewSyncModulePromise =
   // @ts-expect-error plain ESM script imported for unit testing
   import("../../scripts/github-review-sync.mjs") as Promise<{
@@ -8,6 +10,7 @@ const reviewSyncModulePromise =
       workflowRunId: string;
       feedbackLines: string[];
     }): string;
+    formatSyncError(error: unknown): string;
     isBlockingReviewState(reviewState: string | null | undefined): boolean;
     parseLinearIssueIdentifier(body: string | null | undefined): string | null;
   }>;
@@ -53,5 +56,26 @@ Linear Issue: OWN-123
     expect(isBlockingReviewState("COMMENTED")).toBe(false);
     expect(isBlockingReviewState("DISMISSED")).toBe(false);
     expect(isBlockingReviewState(null)).toBe(false);
+  });
+
+  it("formats tracker failures with the error code for action logs", async () => {
+    const { formatSyncError } = await reviewSyncModulePromise;
+
+    expect(
+      formatSyncError(
+        new TrackerError(
+          "linear_api_status",
+          "Linear responded with HTTP 400 while executing IssueContextByIdentifier.",
+        ),
+      ),
+    ).toContain("linear_api_status");
+    expect(
+      formatSyncError(
+        new TrackerError(
+          "linear_api_status",
+          "Linear responded with HTTP 400 while executing IssueContextByIdentifier.",
+        ),
+      ),
+    ).toContain("IssueContextByIdentifier");
   });
 });

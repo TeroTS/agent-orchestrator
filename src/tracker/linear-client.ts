@@ -35,7 +35,7 @@ export interface LinearComment {
 export interface LinearTrackerClientOptions {
   endpoint: string;
   apiKey: string;
-  projectSlug: string;
+  projectSlug?: string;
   fetchFn?: typeof fetch;
   logger?: StructuredLogger;
   pageSize?: number;
@@ -59,7 +59,7 @@ const MAX_LOG_PREVIEW_LENGTH = 1000;
 export class LinearTrackerClient {
   private readonly endpoint: string;
   private readonly apiKey: string;
-  private readonly projectSlug: string;
+  private readonly projectSlug: string | null;
   private readonly fetchFn: typeof fetch;
   private readonly logger: StructuredLogger;
   private readonly pageSize: number;
@@ -68,7 +68,7 @@ export class LinearTrackerClient {
   constructor(options: LinearTrackerClientOptions) {
     this.endpoint = options.endpoint;
     this.apiKey = options.apiKey;
-    this.projectSlug = options.projectSlug;
+    this.projectSlug = options.projectSlug?.trim() || null;
     this.fetchFn = options.fetchFn ?? fetch;
     this.logger = options.logger ?? createStructuredLogger();
     this.pageSize = options.pageSize ?? DEFAULT_PAGE_SIZE;
@@ -84,6 +84,7 @@ export class LinearTrackerClient {
       return [];
     }
 
+    const projectSlug = this.requireProjectSlug();
     const issues: LinearIssue[] = [];
     let after: string | null = null;
 
@@ -92,7 +93,7 @@ export class LinearTrackerClient {
         await this.request<LinearCandidateIssuesPayload>({
           query: candidateIssuesQuery,
           variables: {
-            projectSlug: this.projectSlug,
+            projectSlug,
             states,
             first: this.pageSize,
             after,
@@ -172,6 +173,29 @@ export class LinearTrackerClient {
     return normalizeIssue(issue);
   }
 
+  async fetchIssueContextByIdentifier(
+    issueIdentifier: string,
+  ): Promise<LinearIssue> {
+    const payload: GraphQLResponse<LinearIssueContextByIdentifierPayload> =
+      await this.request<LinearIssueContextByIdentifierPayload>({
+        query: issueContextByIdentifierQuery,
+        variables: {
+          identifier: issueIdentifier,
+          commentsFirst: 20,
+        },
+      });
+
+    const issue = payload.data?.issues?.nodes?.[0];
+    if (!issue?.id || !issue.identifier) {
+      throw new TrackerError(
+        "linear_unknown_payload",
+        `Linear issue lookup payload was malformed for identifier ${issueIdentifier}.`,
+      );
+    }
+
+    return normalizeIssue(issue);
+  }
+
   async transitionIssueToState(
     issueId: string,
     stateName: string,
@@ -234,6 +258,17 @@ export class LinearTrackerClient {
       body: createdComment.body,
       url: createdComment.url ?? null,
     };
+  }
+
+  private requireProjectSlug(): string {
+    if (this.projectSlug) {
+      return this.projectSlug;
+    }
+
+    throw new TrackerError(
+      "linear_project_slug_required",
+      "Linear project slug is required for project-scoped issue queries.",
+    );
   }
 
   private async resolveWorkflowStateId(
@@ -299,21 +334,22 @@ export class LinearTrackerClient {
       });
       const responseText = await response.text();
       const durationMs = Date.now() - startedAt;
+      const operationDetail = operationName
+        ? ` while executing ${operationName}`
+        : "";
 
       if (!response.ok) {
+        const errorMessage = `Linear responded with HTTP ${response.status}${operationDetail}.`;
         this.logger.debug("linear api request failed", {
           duration_ms: durationMs,
           endpoint: this.endpoint,
           error_code: "linear_api_status",
-          error_message: `Linear responded with HTTP ${response.status}.`,
+          error_message: errorMessage,
           operation_name: operationName,
           response_preview: previewForLog(responseText),
           status: response.status,
         });
-        throw new TrackerError(
-          "linear_api_status",
-          `Linear responded with HTTP ${response.status}.`,
-        );
+        throw new TrackerError("linear_api_status", errorMessage);
       }
 
       let payload: GraphQLResponse<T>;
@@ -322,36 +358,35 @@ export class LinearTrackerClient {
           responseText ? JSON.parse(responseText) : {}
         ) as GraphQLResponse<T>;
       } catch {
+        const errorMessage = `Linear returned a non-JSON response body${operationDetail}.`;
         this.logger.debug("linear api request failed", {
           duration_ms: durationMs,
           endpoint: this.endpoint,
           error_code: "linear_graphql_invalid_json_response",
-          error_message: "Linear returned a non-JSON response body.",
+          error_message: errorMessage,
           operation_name: operationName,
           response_preview: previewForLog(responseText),
           status: response.status,
         });
         throw new TrackerError(
           "linear_graphql_invalid_json_response",
-          "Linear returned a non-JSON response body.",
+          errorMessage,
         );
       }
 
       if (Array.isArray(payload.errors) && payload.errors.length > 0) {
+        const errorMessage = `Linear returned GraphQL errors${operationDetail}.`;
         this.logger.debug("linear api request failed", {
           duration_ms: durationMs,
           endpoint: this.endpoint,
           error_code: "linear_graphql_errors",
-          error_message: "Linear returned GraphQL errors.",
+          error_message: errorMessage,
           graphql_errors: payload.errors,
           operation_name: operationName,
           response_preview: previewForLog(responseText),
           status: response.status,
         });
-        throw new TrackerError(
-          "linear_graphql_errors",
-          "Linear returned GraphQL errors.",
-        );
+        throw new TrackerError("linear_graphql_errors", errorMessage);
       }
 
       this.logger.debug("linear api request succeeded", {
@@ -449,6 +484,12 @@ interface LinearIssueUpdatePayload {
 
 interface LinearIssueContextPayload {
   issue?: LinearIssueNode | null;
+}
+
+interface LinearIssueContextByIdentifierPayload {
+  issues?: {
+    nodes?: LinearIssueNode[];
+  };
 }
 
 interface LinearCommentCreatePayload {
@@ -687,6 +728,55 @@ const issueContextByIdQuery = `
           createdAt
           user {
             name
+          }
+        }
+      }
+    }
+  }
+`;
+
+const issueContextByIdentifierQuery = `
+  query IssueContextByIdentifier($identifier: String!, $commentsFirst: Int!) {
+    issues(filter: { identifier: { eq: $identifier } }, first: 1) {
+      nodes {
+        id
+        identifier
+        title
+        description
+        priority
+        branchName
+        url
+        createdAt
+        updatedAt
+        state {
+          name
+        }
+        labels {
+          nodes {
+            name
+          }
+        }
+        inverseRelations {
+          nodes {
+            type
+            issue {
+              id
+              identifier
+              state {
+                name
+              }
+            }
+          }
+        }
+        comments(first: $commentsFirst) {
+          nodes {
+            id
+            body
+            url
+            createdAt
+            user {
+              name
+            }
           }
         }
       }

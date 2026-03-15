@@ -169,7 +169,9 @@ jobs:
           PR_NUMBER: ${{ steps.meta.outputs.pr_number }}
           REVIEW_STARTED_AT: ${{ steps.review-start.outputs.started_at }}
           LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
-        run: node scripts/github-review-sync.mjs
+        run: |
+          npm run build
+          node scripts/github-review-sync.mjs
 
       - name: Fail on blocking review
         if: steps.reviewer.outcome == 'failure' || steps.review-sync.outputs.blocking_review == 'true'

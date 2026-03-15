@@ -8,6 +8,8 @@ const LINEAR_API_ROOT = "https://api.linear.app/graphql";
 const MAX_FEEDBACK_LINES = 20;
 const MAX_COMMENT_LENGTH = 8000;
 
+const { LinearTrackerClient, TrackerError } = await loadTrackerModule();
+
 export function parseLinearIssueIdentifier(body) {
   if (typeof body !== "string") {
     return null;
@@ -47,6 +49,32 @@ export function isBlockingReviewState(reviewState) {
     typeof reviewState === "string" &&
     reviewState.toUpperCase() === "CHANGES_REQUESTED"
   );
+}
+
+export function formatSyncError(error) {
+  if (
+    error instanceof TrackerError ||
+    (typeof error === "object" &&
+      error !== null &&
+      "name" in error &&
+      "code" in error &&
+      "message" in error &&
+      error.name === "TrackerError" &&
+      typeof error.code === "string" &&
+      typeof error.message === "string")
+  ) {
+    return `${error.code}: ${error.message}`;
+  }
+
+  return error instanceof Error ? error.message : String(error);
+}
+
+async function loadTrackerModule() {
+  try {
+    return await import("../src/tracker/linear-client.js");
+  } catch {
+    return import("../dist/src/tracker/linear-client.js");
+  }
 }
 
 function collectFeedbackLines({ reviews, reviewComments, since }) {
@@ -119,115 +147,6 @@ async function fetchGitHubJson(path, token) {
   return response.json();
 }
 
-async function fetchLinearJson({ query, variables, apiKey }) {
-  const response = await fetch(LINEAR_API_ROOT, {
-    method: "POST",
-    headers: {
-      Authorization: apiKey,
-      "content-type": "application/json",
-    },
-    body: JSON.stringify({ query, variables }),
-  });
-
-  if (!response.ok) {
-    throw new Error(`Linear API responded with HTTP ${response.status}.`);
-  }
-
-  const payload = await response.json();
-  if (Array.isArray(payload.errors) && payload.errors.length > 0) {
-    throw new Error("Linear API returned GraphQL errors.");
-  }
-
-  return payload;
-}
-
-async function resolveLinearIssue({ apiKey, issueIdentifier }) {
-  const payload = await fetchLinearJson({
-    apiKey,
-    query: `
-      query ReviewBridgeIssue($identifier: String!, $commentsFirst: Int!) {
-        issues(filter: { identifier: { eq: $identifier } }, first: 1) {
-          nodes {
-            id
-            identifier
-            state {
-              name
-            }
-            team {
-              states {
-                nodes {
-                  id
-                  name
-                }
-              }
-            }
-            comments(first: $commentsFirst) {
-              nodes {
-                body
-              }
-            }
-          }
-        }
-      }
-    `,
-    variables: {
-      identifier: issueIdentifier,
-      commentsFirst: 20,
-    },
-  });
-
-  const issue = payload.data?.issues?.nodes?.[0];
-  if (!issue?.id) {
-    throw new Error(`Unable to resolve Linear issue ${issueIdentifier}.`);
-  }
-
-  return issue;
-}
-
-async function transitionLinearIssueToState({ apiKey, issueId, stateId }) {
-  const payload = await fetchLinearJson({
-    apiKey,
-    query: `
-      mutation MoveIssueToState($id: String!, $stateId: String!) {
-        issueUpdate(id: $id, input: { stateId: $stateId }) {
-          success
-        }
-      }
-    `,
-    variables: {
-      id: issueId,
-      stateId,
-    },
-  });
-
-  if (!payload.data?.issueUpdate?.success) {
-    throw new Error(
-      `Unable to transition Linear issue ${issueId} to the requested state.`,
-    );
-  }
-}
-
-async function createLinearComment({ apiKey, issueId, body }) {
-  const payload = await fetchLinearJson({
-    apiKey,
-    query: `
-      mutation CreateIssueComment($issueId: String!, $body: String!) {
-        commentCreate(input: { issueId: $issueId, body: $body }) {
-          success
-        }
-      }
-    `,
-    variables: {
-      issueId,
-      body,
-    },
-  });
-
-  if (!payload.data?.commentCreate?.success) {
-    throw new Error(`Unable to create Linear comment for issue ${issueId}.`);
-  }
-}
-
 function normalizeText(value) {
   if (typeof value !== "string") {
     return "";
@@ -293,14 +212,16 @@ async function main() {
     feedbackLines,
   });
 
-  const issue = await resolveLinearIssue({
+  const linearClient = new LinearTrackerClient({
+    endpoint: LINEAR_API_ROOT,
     apiKey: linearApiKey,
-    issueIdentifier,
   });
+  const issue =
+    await linearClient.fetchIssueContextByIdentifier(issueIdentifier);
 
   if (
-    Array.isArray(issue.comments?.nodes) &&
-    issue.comments.nodes.some(
+    Array.isArray(issue.comments) &&
+    issue.comments.some(
       (comment) =>
         typeof comment?.body === "string" &&
         comment.body.includes(`Workflow Run: ${workflowRunId}`),
@@ -309,29 +230,14 @@ async function main() {
     return;
   }
 
-  const reworkState = issue.team?.states?.nodes?.find(
-    (state) =>
-      typeof state?.name === "string" && state.name.toLowerCase() === "rework",
-  );
-  if (!reworkState?.id) {
-    throw new Error(
-      `Linear issue ${issueIdentifier} does not have a Rework state.`,
-    );
+  if (
+    typeof issue.state !== "string" ||
+    issue.state.toLowerCase() !== "rework"
+  ) {
+    await linearClient.transitionIssueToState(issue.id, "Rework");
   }
 
-  if (issue.state?.name?.toLowerCase() !== "rework") {
-    await transitionLinearIssueToState({
-      apiKey: linearApiKey,
-      issueId: issue.id,
-      stateId: reworkState.id,
-    });
-  }
-
-  await createLinearComment({
-    apiKey: linearApiKey,
-    issueId: issue.id,
-    body: commentBody,
-  });
+  await linearClient.createIssueComment(issue.id, commentBody);
 }
 
 function requiredEnv(name) {
@@ -345,7 +251,7 @@ function requiredEnv(name) {
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   main().catch((error) => {
-    console.error(error instanceof Error ? error.message : String(error));
+    console.error(formatSyncError(error));
     process.exitCode = 1;
   });
 }
