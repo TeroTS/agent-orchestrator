@@ -51,6 +51,37 @@ jobs:
           app-id: ${{ secrets.APP_ID }}
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
 
+      - name: Fetch PR details
+        id: pr-details
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+          PR_NUMBER: ${{ steps.meta.outputs.pr_number }}
+        run: |
+          pr_json=$(curl -fsSL \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}")
+
+          pr_title=$(printf '%s' "$pr_json" | jq -r '.title // empty')
+          pr_body=$(printf '%s' "$pr_json" | jq -r '.body // ""')
+          pr_branch=$(printf '%s' "$pr_json" | jq -r '.head.ref // empty')
+          pr_author=$(printf '%s' "$pr_json" | jq -r '.user.login // empty')
+
+          if [ -z "$pr_title" ] || [ -z "$pr_branch" ] || [ -z "$pr_author" ]; then
+            echo "Missing PR details from GitHub API." >&2
+            exit 1
+          fi
+
+          echo "pr_title=$pr_title" >> "$GITHUB_OUTPUT"
+          echo "pr_branch=$pr_branch" >> "$GITHUB_OUTPUT"
+          echo "pr_author=$pr_author" >> "$GITHUB_OUTPUT"
+          {
+            echo "pr_body<<EOF"
+            printf '%s\n' "$pr_body"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v6
         with:
@@ -78,9 +109,17 @@ jobs:
             ${{ steps.meta.outputs.head_sha }} for bugs, behavioral
             regressions, risky changes, and missing tests.
 
+            PR title: ${{ steps.pr-details.outputs.pr_title }}
+            PR author: ${{ steps.pr-details.outputs.pr_author }}
+            PR branch: ${{ steps.pr-details.outputs.pr_branch }}
+            PR description:
+            ${{ steps.pr-details.outputs.pr_body }}
+
             The repository is already checked out at the PR head commit.
-            Do not use Bash, gh, or other shell commands to discover pull
-            request metadata. Use the PR context provided in this prompt and
+            Do not use Bash, gh, git, or other shell commands to discover pull
+            request metadata. Do not try to confirm the PR number, title,
+            body, author, or branch through shell commands or extra API
+            lookups. Treat the prompt values as the source of truth and
             review the checked-out changes directly.
 
             Post review findings directly on the pull request. Focus on

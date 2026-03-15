@@ -112,6 +112,30 @@ describe("repository tooling", () => {
         resolve(repoRoot, ".github/workflows/github-review.yml"),
         "utf8",
       ),
+    ).resolves.toEqual(expect.stringContaining("PR title:"));
+    await expect(
+      readFile(
+        resolve(repoRoot, ".github/workflows/github-review.yml"),
+        "utf8",
+      ),
+    ).resolves.toEqual(expect.stringContaining("PR author:"));
+    await expect(
+      readFile(
+        resolve(repoRoot, ".github/workflows/github-review.yml"),
+        "utf8",
+      ),
+    ).resolves.toEqual(expect.stringContaining("PR branch:"));
+    await expect(
+      readFile(
+        resolve(repoRoot, ".github/workflows/github-review.yml"),
+        "utf8",
+      ),
+    ).resolves.toEqual(expect.stringContaining("PR description:"));
+    await expect(
+      readFile(
+        resolve(repoRoot, ".github/workflows/github-review.yml"),
+        "utf8",
+      ),
     ).resolves.toEqual(
       expect.stringContaining("The repository is already checked out"),
     );
@@ -121,7 +145,25 @@ describe("repository tooling", () => {
         "utf8",
       ),
     ).resolves.toEqual(
-      expect.stringContaining("Do not use Bash, gh, or other shell commands"),
+      expect.stringContaining(
+        "Do not use Bash, gh, git, or other shell commands",
+      ),
+    );
+    await expect(
+      readFile(
+        resolve(repoRoot, ".github/workflows/github-review.yml"),
+        "utf8",
+      ),
+    ).resolves.toEqual(
+      expect.stringContaining("Do not try to confirm the PR number, title,"),
+    );
+    await expect(
+      readFile(
+        resolve(repoRoot, ".github/workflows/github-review.yml"),
+        "utf8",
+      ),
+    ).resolves.toEqual(
+      expect.stringContaining("Treat the prompt values as the source of truth"),
     );
     await expect(
       readFile(
