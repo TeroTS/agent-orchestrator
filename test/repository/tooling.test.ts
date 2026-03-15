@@ -109,6 +109,12 @@ describe("repository tooling", () => {
     ).resolves.toEqual(expect.stringContaining("Review this pull request"));
     await expect(
       readFile(
+        resolve(repoRoot, ".github/workflows/github-review.yml"),
+        "utf8",
+      ),
+    ).resolves.toEqual(expect.stringContaining("show_full_output: true"));
+    await expect(
+      readFile(
         resolve(repoRoot, ".github/workflows/pr-description-lint.yml"),
         "utf8",
       ),

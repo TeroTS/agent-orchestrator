@@ -71,6 +71,7 @@ jobs:
           github_token: ${{ steps.app-token.outputs.token }}
           use_bedrock: "true"
           claude_args: "--model global.anthropic.claude-sonnet-4-6 --max-turns 10"
+          show_full_output: true
           prompt: |
             Review this pull request for bugs, behavioral regressions, risky
             changes, and missing tests.
